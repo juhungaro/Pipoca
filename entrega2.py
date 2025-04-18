@@ -24,10 +24,11 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 from statsmodels.tsa.seasonal import seasonal_decompose
+import numpy as np
 
 """Upload dos dados"""
 
-# 1. Carregamento importação de dados
+# 1. Upload do arquivo
 print("1. Carregamento dos dados do SatVeg")
 from google.colab import files
 uploaded = files.upload()
@@ -490,8 +491,8 @@ plt.show()
 
 # Exportação dos dados processados
 print("\n5. Exportação dos dados processados")
-df_climatotal.to_csv('df_climatotal.csv', index=False)
-print("- Dados processados salvos como 'df_climatotal.csv'")
+df_climatotal.to_csv('climatotal.csv', index=False)
+print("- Dados processados salvos como 'climatotal.csv'")
 
 """# Produção agrícola 🌱🌽
 Fonte de dados CONAB, série histórica grãos https://portaldeinformacoes.conab.gov.br/downloads/arquivos/SerieHistoricaGraos.txt
@@ -869,7 +870,7 @@ print(base[['primeiro_ano', 'produtividade', 'ndvi_medio_ano',
             'temp_media_ciclo', 'rad_media_ciclo',
             'imputado_temp', 'imputado_rad']])
 
-# Exportação dos dados processados
+# Exporta dados processados
 print("\n5. Exportação dos dados processados")
 base.to_csv('base.csv', index=False)
 print("- Dados processados salvos como 'base.csv'")
@@ -1071,8 +1072,8 @@ def load_ndvi_image(path):
 
 # Configure os caminhos para os arquivos no Drive
 # Ajuste esses caminhos para onde seus arquivos estão armazenados
-rgb_path = '/content/drive/MyDrive/EarthEngine_Exports (1)/sorriso_rgb.tif'
-ndvi_path = '/content/drive/MyDrive/EarthEngine_Exports (1)/sorriso_ndvi.tif'
+rgb_path = '/content/drive/MyDrive/Pipoca/sorriso_rgb.tif'
+ndvi_path = '/content/drive/MyDrive/Pipoca/sorriso_ndvi.tif'
 
 # Verificar se os arquivos existem antes de carregar
 print("Carregando imagens...")
@@ -1154,7 +1155,7 @@ from skimage import filters
 from skimage.segmentation import watershed
 from skimage.color import label2rgb
 
-# 2. SEGMENTAÇÃO POR CLUSTERING (K-MEANS)
+# Segmentação por clustering (K-MEANS)
 print("\n2. Aplicando segmentação por K-means...")
 # Preparar dados para clustering
 # Reorganizar RGB para forma adequada
@@ -1236,15 +1237,18 @@ plt.show()
 
 """
 
-#  Extração de características (feature extraction)
+# Importar bibliotecas necessárias para modelagem
 import numpy as np
-import pandas as pd
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.model_selection import train_test_split, GridSearchCV
-from sklearn.metrics import mean_squared_error, r2_score
-import matplotlib.pyplot as plt
+from sklearn.model_selection import train_test_split, GridSearchCV, cross_val_score
 from sklearn.preprocessing import StandardScaler
-import joblib
+from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
+from sklearn.linear_model import LinearRegression, Ridge, Lasso
+from sklearn.svm import SVR
+from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
+import xgboost as xgb
+from sklearn.pipeline import Pipeline
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 # Extrair características das imagens segmentadas
 def extract_features(rgb_image, ndvi_image, ndvi_segments, segments_kmeans, segments_watershed):
@@ -1297,20 +1301,20 @@ print(features_df.head())
 import pandas as pd
 
 # Carregar dados de produtividade
-productivity_data = pd.read_csv('milho.csv')
+produtividade = pd.read_csv('milho.csv')
 
 print("Dados de produtividade carregados:")
-print(f"Número de registros: {len(productivity_data)}")
-print(productivity_data.head())
+print(f"Número de registros: {len(produtividade)}")
+print(produtividade.head())
 
 # Extrair características para cada imagem/parcela
 all_features = pd.DataFrame()
 
 # Para cada imagem/parcela no seu conjunto de dados
 # Iterar sobre cada ano no conjunto de dados de produtividade
-for ano in productivity_data['primeiro_ano'].unique():
+for ano in produtividade['primeiro_ano'].unique():
     # Filtrar os dados de produtividade para o ano atual
-    data_ano = productivity_data[productivity_data['primeiro_ano'] == ano]
+    data_ano = produtividade[produtividade['primeiro_ano'] == ano]
 
     # Carregar imagem e dados NDVI correspondentes
     # (ajuste os caminhos conforme necessário)
@@ -1330,7 +1334,7 @@ for ano in productivity_data['primeiro_ano'].unique():
     all_features = pd.concat([all_features, features], ignore_index=True)
 
 # Juntar características com dados de produtividade
-dataset = pd.merge(all_features, productivity_data,
+dataset = pd.merge(all_features, produtividade,
                   on=['primeiro_ano'],
                   how='inner')
 
@@ -1367,4 +1371,3 @@ X_train_scaled = scaler.fit_transform(X_train)
 X_test_scaled = scaler.transform(X_test)
 
 print("\nDados normalizados e prontos para treinamento.")
-
