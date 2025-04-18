@@ -1,8 +1,8 @@
 # FIAP - Faculdade de Informática e Administração Paulista
-Projeto voltado a desenvolver soluções com Redes Neurais Convolucionais (CNN) e Detecão de Objetos com YOLO.
+Enterprise Challenge - Sprint 2 - Ingredion
 
 <p align="center">
-<a href= "https://www.fiap.com.br/"><img src="assets/logo-fiap.png" alt="FIAP - Faculdade de Informática e Admnistração Paulista" border="0" width=40% height=40%></a>
+<a href= "https://www.fiap.com.br/"><img src="assets/logo-fiap (3).png" alt="FIAP - Faculdade de Informática e Admnistração Paulista" border="0" width=40% height=40%></a>
 </p>
 
 <br>
