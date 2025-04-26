@@ -1,11 +1,11 @@
-# -*- coding: utf-8 -*-
+
 # Aplicação Streamlit para Visualização do Modelo e Análise Exploratória
 
 import streamlit as st
 import pandas as pd
 import numpy as np
 import os
-import joblib # Para carregar o modelo salvo
+import joblib 
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestRegressor # Apenas para type hint
 from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
