@@ -1,10 +1,11 @@
+# -*- coding: utf-8 -*-
 # Aplicação Streamlit para Visualização do Modelo e Análise Exploratória
 
 import streamlit as st
 import pandas as pd
 import numpy as np
 import os
-import joblib 
+import joblib # Para carregar o modelo salvo
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestRegressor # Apenas para type hint
 from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
@@ -27,6 +28,7 @@ consolidated_monthly_path = os.path.join(processed_folder, 'base_consolidada_men
 milho_path = os.path.join(processed_folder, 'milho.csv')
 # Ajuste o nome do modelo se salvou com outro nome na Etapa 3
 model_path = os.path.join(model_folder, 'modelo_final_rf_por_safra_otimizado.joblib')
+# solo_path = os.path.join(processed_folder, 'dados_solo_sorriso.csv') # Caminho opcional do solo
 
 # --- Funções Auxiliares (Cache para Performance) ---
 
@@ -51,9 +53,13 @@ def carregar_dados_base(monthly_path, milho_path_func):
         if 'MES' in df_mensal.columns: df_mensal['MES'] = pd.to_numeric(df_mensal['MES'], errors='coerce').astype('Int64')
         else: raise ValueError("Coluna 'MES' ausente em df_mensal.")
         df_mensal.dropna(subset=['ANO', 'MES'], inplace=True)
-        # Cria coluna DATA se não existir, para plots temporais
+        # Cria coluna DATA_MES se não existir, para plots temporais
         if 'DATA_MES' not in df_mensal.columns:
-             df_mensal['DATA_MES'] = pd.to_datetime(df_mensal['ANO'].astype(str) + '-' + df_mensal['MES'].astype(str) + '-01', errors='coerce')
+             # Garante que ANO e MES são strings antes de concatenar
+             df_mensal['ANO_str'] = df_mensal['ANO'].astype(str)
+             df_mensal['MES_str'] = df_mensal['MES'].astype(str).str.zfill(2)
+             df_mensal['DATA_MES'] = pd.to_datetime(df_mensal['ANO_str'] + '-' + df_mensal['MES_str'] + '-01', errors='coerce')
+             df_mensal.drop(columns=['ANO_str', 'MES_str'], inplace=True) # Remove colunas auxiliares
 
         if 'ANO' in df_milho_proc.columns: df_milho_proc['ANO'] = pd.to_numeric(df_milho_proc['ANO'], errors='coerce').astype('Int64')
         else: raise ValueError("Coluna 'ANO' ausente em df_milho_proc.")
@@ -150,6 +156,7 @@ X, y, features_cols = preparar_X_y(df_modelar_safra)
 best_model_rf = carregar_modelo(model_path)
 
 # --- Criação das Abas ---
+# <<< AJUSTE: Removida a aba de Correlações >>>
 tab1, tab2 = st.tabs(["📊 Análise Exploratória", "🤖 Avaliação do Modelo"])
 
 # --- Aba 1: Análise Exploratória ---
@@ -159,9 +166,9 @@ with tab1:
     if df_mensal is not None and df_milho_proc is not None:
         st.markdown("Visualização das tendências e padrões nos dados originais processados.")
 
-        # Sub-abas para organizar a EDA
-        sub_tab_clima, sub_tab_ndvi, sub_tab_prod, sub_tab_corr = st.tabs([
-            "Clima", "NDVI (SatVeg)", "Produtividade", "Correlações"
+        # <<< AJUSTE: Removida a sub-aba de Correlações >>>
+        sub_tab_clima, sub_tab_ndvi, sub_tab_prod = st.tabs([
+            "Clima", "NDVI (SatVeg)", "Produtividade"
         ])
 
         with sub_tab_clima:
@@ -173,7 +180,6 @@ with tab1:
                     'RADIACAO_media_mensal': ('Radiação (W/m² ?)', 'orange', axes_clima[1]),
                     'PRECIPITACAO_mm_mensal_soma': ('Precipitação (mm/mês)', 'blue', axes_clima[2]),
                     'UMIDADE_media_mensal': ('Umidade Relativa (%)', 'green', axes_clima[3])
-                    # Adicionar Vento se desejar
                 }
                 plot_count_clima = 0
                 for col, (label, color, ax) in plot_vars_clima.items():
@@ -182,16 +188,13 @@ with tab1:
                         ax.set_ylabel(label)
                         ax.grid(True, alpha=0.5); ax.legend(loc='upper left')
                         plot_count_clima += 1
-
                 if plot_count_clima > 0:
                     axes_clima[-1].set_xlabel('Data')
                     plt.suptitle("Evolução Mensal das Variáveis Climáticas", y=1.02)
                     plt.tight_layout(rect=[0, 0.03, 1, 0.98])
                     st.pyplot(fig_clima)
-                else:
-                    st.warning("Não foi possível gerar gráficos climáticos (dados ausentes).")
-            else:
-                 st.warning("Coluna 'DATA_MES' não encontrada para plots climáticos.")
+                else: st.warning("Não foi possível gerar gráficos climáticos.")
+            else: st.warning("Coluna 'DATA_MES' não encontrada.")
 
         with sub_tab_ndvi:
             st.subheader("NDVI SatVeg (Médio Mensal)")
@@ -219,8 +222,7 @@ with tab1:
                           else: st.warning("Não foi possível calcular o perfil sazonal do NDVI.")
                      else: st.warning("Não há dados válidos para o perfil sazonal do NDVI.")
                 else: st.warning("Coluna 'MES' não encontrada para perfil sazonal.")
-            else:
-                 st.warning("Colunas 'DATA_MES' ou 'NDVI_satveg_mensal' não encontradas.")
+            else: st.warning("Colunas 'DATA_MES' ou 'NDVI_satveg_mensal' não encontradas.")
 
         with sub_tab_prod:
             st.subheader("Produtividade de Milho (CONAB - MT)")
@@ -228,7 +230,6 @@ with tab1:
             colunas_num_prod_ok = [c for c in colunas_num_prod if c in df_milho_proc.columns]
 
             if 'ANO' in df_milho_proc.columns and 'safra' in df_milho_proc.columns and colunas_num_prod_ok:
-                 # Evolução por Safra
                  st.write("Evolução por Safra:")
                  for coluna in colunas_num_prod_ok:
                       fig_prod_ts, ax_prod_ts = plt.subplots(figsize=(12, 4))
@@ -238,7 +239,6 @@ with tab1:
                       ax_prod_ts.legend(title='Safra'); ax_prod_ts.grid(True)
                       st.pyplot(fig_prod_ts)
 
-                 # Boxplot Produtividade por Ano e Safra
                  st.write("Distribuição da Produtividade por Ano e Safra:")
                  df_milho_proc['ANO'] = pd.to_numeric(df_milho_proc['ANO'], errors='coerce')
                  df_milho_proc_plot = df_milho_proc.dropna(subset=['ANO', 'Produtividade_Anual', 'safra'])
@@ -253,34 +253,12 @@ with tab1:
                       plt.tight_layout(rect=[0, 0, 0.9, 1])
                       st.pyplot(fig_prod_box)
                  else: st.warning("Não há dados válidos para gerar boxplot de produtividade.")
-            else:
-                 st.warning("Colunas necessárias para gráficos de produtividade não encontradas.")
+            else: st.warning("Colunas necessárias para gráficos de produtividade não encontradas.")
 
-        with sub_tab_corr:
-            st.subheader("Matriz de Correlação (Base Mensal)")
-            st.markdown("Mostra a correlação linear entre as médias/somas mensais e a produtividade anual (repetida).")
-            colunas_corr_prod = [
-                'RADIACAO_media_mensal', 'TEMPERATURA_media_mensal', 'PRECIPITACAO_mm_mensal_soma',
-                'UMIDADE_media_mensal', 'VENTO_VEL_media_mensal', 'NDVI_satveg_mensal',
-                'Produtividade_Anual'
-            ]
-            colunas_corr_existentes = [col for col in colunas_corr_prod if col in df_consolidado_mensal.columns]
-
-            if len(colunas_corr_existentes) > 1:
-                df_corr = df_consolidado_mensal[colunas_corr_existentes].dropna()
-                if not df_corr.empty and len(df_corr) > 1:
-                     matriz_corr_final = df_corr.corr()
-                     fig_corr, ax_corr = plt.subplots(figsize=(10, 8))
-                     sns.heatmap(matriz_corr_final, annot=True, cmap='coolwarm', fmt=".2f", linewidths=.5, ax=ax_corr)
-                     ax_corr.set_title('Matriz de Correlação (Base Mensal, Incluindo Produtividade)')
-                     st.pyplot(fig_corr)
-
-                     if 'Produtividade_Anual' in matriz_corr_final.columns:
-                          st.write("**Correlação com Produtividade_Anual:**")
-                          st.dataframe(matriz_corr_final['Produtividade_Anual'].sort_values(ascending=False).to_frame())
-                     else: st.warning("Coluna 'Produtividade_Anual' não encontrada na matriz.")
-                else: st.warning("Não há dados suficientes após remover NaNs para calcular a matriz de correlação.")
-            else: st.warning("Não há colunas suficientes ou válidas para calcular a matriz de correlação final.")
+        # <<< REMOVIDO: Bloco 'with sub_tab_corr:' >>>
+        # with sub_tab_corr:
+        #    st.subheader("Matriz de Correlação (Base Mensal)")
+        #    ... (código da matriz de correlação removido) ...
 
     else:
         st.error("Falha ao carregar os dados necessários para a Análise Exploratória.")
@@ -297,20 +275,16 @@ with tab2:
         X_train, X_test, y_train, y_test = None, None, None, None
         try:
             safra_original = df_modelar_safra.loc[X.index].index.get_level_values('safra')
-            test_size_ratio = 0.25
-            min_samples_per_class = 2
+            test_size_ratio = 0.25; min_samples_per_class = 2
             counts = safra_original.value_counts()
             y = y.loc[X.index] # Alinhamento
 
             if safra_original.nunique() > 1 and all(counts >= min_samples_per_class):
-                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size_ratio, random_state=42, stratify=safra_original)
-            else:
-                st.warning("Não foi possível estratificar. Usando divisão aleatória simples.")
-                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size_ratio, random_state=42)
+                 try: X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size_ratio, random_state=42, stratify=safra_original)
+                 except ValueError: st.warning("Falha na estratificação. Usando divisão simples."); X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size_ratio, random_state=42)
+            else: st.warning("Não estratificando. Usando divisão simples."); X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size_ratio, random_state=42)
             st.write(f"Dados divididos para avaliação: {len(X_train)} treino, {len(X_test)} teste.")
-
-        except Exception as e_split:
-             st.error(f"Erro ao recriar divisão treino/teste: {e_split}")
+        except Exception as e_split: st.error(f"Erro ao recriar divisão treino/teste: {e_split}")
 
         # Avaliar no conjunto de teste
         if X_test is not None and y_test is not None:
@@ -363,7 +337,7 @@ with tab2:
             except Exception as e_eval: st.error(f"Erro ao avaliar o modelo no conjunto de teste: {e_eval}")
         else: st.error("Não foi possível recriar os dados de teste para avaliação.")
     else:
-        st.error("Não foi possível carregar dados ou modelo para avaliação. Verifique as etapas anteriores e os caminhos.")
+        st.error("Não foi possível carregar dados ou modelo para avaliação.")
 
 # --- Sidebar ---
 st.sidebar.header("Sobre")
@@ -372,5 +346,5 @@ st.sidebar.header("Arquivos Necessários")
 st.sidebar.markdown(f"- `{os.path.basename(consolidated_monthly_path)}`")
 st.sidebar.markdown(f"- `{os.path.basename(milho_path)}`")
 st.sidebar.markdown(f"- `{os.path.basename(model_path)}`")
-# st.sidebar.markdown(f"*(Opcional: `{os.path.basename(solo_path)}`)*") # Comentado pois não usamos solo
+# st.sidebar.markdown(f"*(Opcional: `{os.path.basename(solo_path)}`)*")
 
