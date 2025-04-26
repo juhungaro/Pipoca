@@ -1,597 +1,376 @@
-{
-  "nbformat": 4,
-  "nbformat_minor": 0,
-  "metadata": {
-    "colab": {
-      "provenance": [],
-      "authorship_tag": "ABX9TyPTcscyi4bqRg6Hde/IpQUK",
-      "include_colab_link": true
-    },
-    "kernelspec": {
-      "name": "python3",
-      "display_name": "Python 3"
-    },
-    "language_info": {
-      "name": "python"
+# Aplicação Streamlit para Visualização do Modelo e Análise Exploratória
+
+import streamlit as st
+import pandas as pd
+import numpy as np
+import os
+import joblib 
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestRegressor # Apenas para type hint
+from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
+import matplotlib.pyplot as plt
+import seaborn as sns
+# Importar display opcionalmente para tabelas no Colab (não usado no Streamlit direto)
+# from IPython.display import display
+
+# --- Configurações Iniciais ---
+st.set_page_config(layout="wide", page_title="Dashboard Produtividade Milho")
+
+st.title("🌽 Dashboard de Produtividade de Milho (Sorriso-MT)")
+st.markdown("Análise Exploratória dos Dados e Avaliação do Modelo Preditivo (RandomForest por Safra).")
+
+# --- Definição Global de Caminhos ---
+processed_folder = 'dados_processados'
+results_folder = 'resultados'
+model_folder = os.path.join(results_folder, 'modelos')
+consolidated_monthly_path = os.path.join(processed_folder, 'base_consolidada_mensal.csv')
+milho_path = os.path.join(processed_folder, 'milho.csv')
+# Ajuste o nome do modelo se salvou com outro nome na Etapa 3
+model_path = os.path.join(model_folder, 'modelo_final_rf_por_safra_otimizado.joblib')
+
+# --- Funções Auxiliares (Cache para Performance) ---
+
+@st.cache_data # Cache para dados carregados
+def carregar_dados_base(monthly_path, milho_path_func):
+    """Carrega e faz uma preparação mínima nos DataFrames base."""
+    df_mensal = None
+    df_milho_proc = None
+    erro_carga = False
+
+    if not os.path.exists(monthly_path): st.error(f"Erro: Arquivo não encontrado: {monthly_path}"); erro_carga = True
+    if not os.path.exists(milho_path_func): st.error(f"Erro: Arquivo não encontrado: {milho_path_func}"); erro_carga = True
+    if erro_carga: return None, None
+
+    try:
+        df_mensal = pd.read_csv(monthly_path)
+        df_milho_proc = pd.read_csv(milho_path_func)
+
+        # Preparação mínima (tipos de dados chave)
+        if 'ANO' in df_mensal.columns: df_mensal['ANO'] = pd.to_numeric(df_mensal['ANO'], errors='coerce').astype('Int64')
+        else: raise ValueError("Coluna 'ANO' ausente em df_mensal.")
+        if 'MES' in df_mensal.columns: df_mensal['MES'] = pd.to_numeric(df_mensal['MES'], errors='coerce').astype('Int64')
+        else: raise ValueError("Coluna 'MES' ausente em df_mensal.")
+        df_mensal.dropna(subset=['ANO', 'MES'], inplace=True)
+        # Cria coluna DATA se não existir, para plots temporais
+        if 'DATA_MES' not in df_mensal.columns:
+             df_mensal['DATA_MES'] = pd.to_datetime(df_mensal['ANO'].astype(str) + '-' + df_mensal['MES'].astype(str) + '-01', errors='coerce')
+
+        if 'ANO' in df_milho_proc.columns: df_milho_proc['ANO'] = pd.to_numeric(df_milho_proc['ANO'], errors='coerce').astype('Int64')
+        else: raise ValueError("Coluna 'ANO' ausente em df_milho_proc.")
+        if 'Produtividade_Anual' in df_milho_proc.columns: df_milho_proc['Produtividade_Anual'] = pd.to_numeric(df_milho_proc['Produtividade_Anual'], errors='coerce')
+        else: raise ValueError("Coluna 'Produtividade_Anual' ausente em df_milho_proc.")
+        if 'safra' not in df_milho_proc.columns: raise ValueError("Coluna 'safra' ausente em df_milho_proc.")
+        df_milho_proc.dropna(subset=['ANO', 'Produtividade_Anual', 'safra'], inplace=True)
+
+        return df_mensal, df_milho_proc
+
+    except Exception as e:
+        st.error(f"Erro ao carregar ou preparar dados base: {e}")
+        return None, None
+
+@st.cache_data
+def agregar_features_por_safra(_df_mensal, _df_milho_proc):
+    """Agrega features climáticas/NDVI por safra."""
+    # (Lógica de agregação idêntica à da Etapa 3)
+    if _df_mensal is None or _df_milho_proc is None: return None
+    meses_safra1 = [(10, -1), (11, -1), (12, -1), (1, 0), (2, 0)]
+    meses_safra2 = [(2, 0), (3, 0), (4, 0), (5, 0), (6, 0), (7, 0)]
+    meses_safra3 = [(5, 0), (6, 0), (7, 0), (8, 0), (9, 0)]
+    agg_config = {
+        'mean': ['RADIACAO_media_mensal', 'TEMPERATURA_media_mensal', 'UMIDADE_media_mensal', 'VENTO_VEL_media_mensal', 'NDVI_satveg_mensal'],
+        'min':  ['RADIACAO_media_mensal', 'TEMPERATURA_media_mensal', 'UMIDADE_media_mensal', 'NDVI_satveg_mensal'],
+        'max':  ['RADIACAO_media_mensal', 'TEMPERATURA_media_mensal', 'UMIDADE_media_mensal', 'VENTO_VEL_media_mensal', 'NDVI_satveg_mensal'],
+        'sum':  ['PRECIPITACAO_mm_mensal_soma']
     }
-  },
-  "cells": [
-    {
-      "cell_type": "markdown",
-      "metadata": {
-        "id": "view-in-github",
-        "colab_type": "text"
-      },
-      "source": [
-        "<a href=\"https://colab.research.google.com/github/juhungaro/Pipoca/blob/main/app_produtividade.py\" target=\"_parent\"><img src=\"https://colab.research.google.com/assets/colab-badge.svg\" alt=\"Open In Colab\"/></a>"
-      ]
-    },
-    {
-      "cell_type": "code",
-      "source": [
-        "!pip install streamlit"
-      ],
-      "metadata": {
-        "colab": {
-          "base_uri": "https://localhost:8080/"
-        },
-        "id": "uhTkVh70lKhh",
-        "outputId": "c85c66e8-36f1-40cc-c1d1-938eedaaf554"
-      },
-      "execution_count": 2,
-      "outputs": [
-        {
-          "output_type": "stream",
-          "name": "stdout",
-          "text": [
-            "Collecting streamlit\n",
-            "  Downloading streamlit-1.44.1-py3-none-any.whl.metadata (8.9 kB)\n",
-            "Requirement already satisfied: altair<6,>=4.0 in /usr/local/lib/python3.11/dist-packages (from streamlit) (5.5.0)\n",
-            "Requirement already satisfied: blinker<2,>=1.0.0 in /usr/local/lib/python3.11/dist-packages (from streamlit) (1.9.0)\n",
-            "Requirement already satisfied: cachetools<6,>=4.0 in /usr/local/lib/python3.11/dist-packages (from streamlit) (5.5.2)\n",
-            "Requirement already satisfied: click<9,>=7.0 in /usr/local/lib/python3.11/dist-packages (from streamlit) (8.1.8)\n",
-            "Requirement already satisfied: numpy<3,>=1.23 in /usr/local/lib/python3.11/dist-packages (from streamlit) (2.0.2)\n",
-            "Requirement already satisfied: packaging<25,>=20 in /usr/local/lib/python3.11/dist-packages (from streamlit) (24.2)\n",
-            "Requirement already satisfied: pandas<3,>=1.4.0 in /usr/local/lib/python3.11/dist-packages (from streamlit) (2.2.2)\n",
-            "Requirement already satisfied: pillow<12,>=7.1.0 in /usr/local/lib/python3.11/dist-packages (from streamlit) (11.1.0)\n",
-            "Requirement already satisfied: protobuf<6,>=3.20 in /usr/local/lib/python3.11/dist-packages (from streamlit) (5.29.4)\n",
-            "Requirement already satisfied: pyarrow>=7.0 in /usr/local/lib/python3.11/dist-packages (from streamlit) (18.1.0)\n",
-            "Requirement already satisfied: requests<3,>=2.27 in /usr/local/lib/python3.11/dist-packages (from streamlit) (2.32.3)\n",
-            "Requirement already satisfied: tenacity<10,>=8.1.0 in /usr/local/lib/python3.11/dist-packages (from streamlit) (9.1.2)\n",
-            "Requirement already satisfied: toml<2,>=0.10.1 in /usr/local/lib/python3.11/dist-packages (from streamlit) (0.10.2)\n",
-            "Requirement already satisfied: typing-extensions<5,>=4.4.0 in /usr/local/lib/python3.11/dist-packages (from streamlit) (4.13.2)\n",
-            "Collecting watchdog<7,>=2.1.5 (from streamlit)\n",
-            "  Downloading watchdog-6.0.0-py3-none-manylinux2014_x86_64.whl.metadata (44 kB)\n",
-            "\u001b[2K     \u001b[90m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\u001b[0m \u001b[32m44.3/44.3 kB\u001b[0m \u001b[31m2.5 MB/s\u001b[0m eta \u001b[36m0:00:00\u001b[0m\n",
-            "\u001b[?25hRequirement already satisfied: gitpython!=3.1.19,<4,>=3.0.7 in /usr/local/lib/python3.11/dist-packages (from streamlit) (3.1.44)\n",
-            "Collecting pydeck<1,>=0.8.0b4 (from streamlit)\n",
-            "  Downloading pydeck-0.9.1-py2.py3-none-any.whl.metadata (4.1 kB)\n",
-            "Requirement already satisfied: tornado<7,>=6.0.3 in /usr/local/lib/python3.11/dist-packages (from streamlit) (6.4.2)\n",
-            "Requirement already satisfied: jinja2 in /usr/local/lib/python3.11/dist-packages (from altair<6,>=4.0->streamlit) (3.1.6)\n",
-            "Requirement already satisfied: jsonschema>=3.0 in /usr/local/lib/python3.11/dist-packages (from altair<6,>=4.0->streamlit) (4.23.0)\n",
-            "Requirement already satisfied: narwhals>=1.14.2 in /usr/local/lib/python3.11/dist-packages (from altair<6,>=4.0->streamlit) (1.35.0)\n",
-            "Requirement already satisfied: gitdb<5,>=4.0.1 in /usr/local/lib/python3.11/dist-packages (from gitpython!=3.1.19,<4,>=3.0.7->streamlit) (4.0.12)\n",
-            "Requirement already satisfied: python-dateutil>=2.8.2 in /usr/local/lib/python3.11/dist-packages (from pandas<3,>=1.4.0->streamlit) (2.8.2)\n",
-            "Requirement already satisfied: pytz>=2020.1 in /usr/local/lib/python3.11/dist-packages (from pandas<3,>=1.4.0->streamlit) (2025.2)\n",
-            "Requirement already satisfied: tzdata>=2022.7 in /usr/local/lib/python3.11/dist-packages (from pandas<3,>=1.4.0->streamlit) (2025.2)\n",
-            "Requirement already satisfied: charset-normalizer<4,>=2 in /usr/local/lib/python3.11/dist-packages (from requests<3,>=2.27->streamlit) (3.4.1)\n",
-            "Requirement already satisfied: idna<4,>=2.5 in /usr/local/lib/python3.11/dist-packages (from requests<3,>=2.27->streamlit) (3.10)\n",
-            "Requirement already satisfied: urllib3<3,>=1.21.1 in /usr/local/lib/python3.11/dist-packages (from requests<3,>=2.27->streamlit) (2.3.0)\n",
-            "Requirement already satisfied: certifi>=2017.4.17 in /usr/local/lib/python3.11/dist-packages (from requests<3,>=2.27->streamlit) (2025.1.31)\n",
-            "Requirement already satisfied: smmap<6,>=3.0.1 in /usr/local/lib/python3.11/dist-packages (from gitdb<5,>=4.0.1->gitpython!=3.1.19,<4,>=3.0.7->streamlit) (5.0.2)\n",
-            "Requirement already satisfied: MarkupSafe>=2.0 in /usr/local/lib/python3.11/dist-packages (from jinja2->altair<6,>=4.0->streamlit) (3.0.2)\n",
-            "Requirement already satisfied: attrs>=22.2.0 in /usr/local/lib/python3.11/dist-packages (from jsonschema>=3.0->altair<6,>=4.0->streamlit) (25.3.0)\n",
-            "Requirement already satisfied: jsonschema-specifications>=2023.03.6 in /usr/local/lib/python3.11/dist-packages (from jsonschema>=3.0->altair<6,>=4.0->streamlit) (2024.10.1)\n",
-            "Requirement already satisfied: referencing>=0.28.4 in /usr/local/lib/python3.11/dist-packages (from jsonschema>=3.0->altair<6,>=4.0->streamlit) (0.36.2)\n",
-            "Requirement already satisfied: rpds-py>=0.7.1 in /usr/local/lib/python3.11/dist-packages (from jsonschema>=3.0->altair<6,>=4.0->streamlit) (0.24.0)\n",
-            "Requirement already satisfied: six>=1.5 in /usr/local/lib/python3.11/dist-packages (from python-dateutil>=2.8.2->pandas<3,>=1.4.0->streamlit) (1.17.0)\n",
-            "Downloading streamlit-1.44.1-py3-none-any.whl (9.8 MB)\n",
-            "\u001b[2K   \u001b[90m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\u001b[0m \u001b[32m9.8/9.8 MB\u001b[0m \u001b[31m47.0 MB/s\u001b[0m eta \u001b[36m0:00:00\u001b[0m\n",
-            "\u001b[?25hDownloading pydeck-0.9.1-py2.py3-none-any.whl (6.9 MB)\n",
-            "\u001b[2K   \u001b[90m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\u001b[0m \u001b[32m6.9/6.9 MB\u001b[0m \u001b[31m48.4 MB/s\u001b[0m eta \u001b[36m0:00:00\u001b[0m\n",
-            "\u001b[?25hDownloading watchdog-6.0.0-py3-none-manylinux2014_x86_64.whl (79 kB)\n",
-            "\u001b[2K   \u001b[90m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\u001b[0m \u001b[32m79.1/79.1 kB\u001b[0m \u001b[31m5.2 MB/s\u001b[0m eta \u001b[36m0:00:00\u001b[0m\n",
-            "\u001b[?25hInstalling collected packages: watchdog, pydeck, streamlit\n",
-            "Successfully installed pydeck-0.9.1 streamlit-1.44.1 watchdog-6.0.0\n"
-          ]
-        }
-      ]
-    },
-    {
-      "cell_type": "code",
-      "source": [
-        "!streamlit run app_produtividade.py"
-      ],
-      "metadata": {
-        "colab": {
-          "base_uri": "https://localhost:8080/"
-        },
-        "id": "zQEkZh0MlOdg",
-        "outputId": "ef8241f2-a70a-4e2d-ad61-e23d2abe947d"
-      },
-      "execution_count": 3,
-      "outputs": [
-        {
-          "output_type": "stream",
-          "name": "stdout",
-          "text": [
-            "Usage: streamlit run [OPTIONS] TARGET [ARGS]...\n",
-            "Try 'streamlit run --help' for help.\n",
-            "\n",
-            "Error: Invalid value: File does not exist: app_produtividade.py\n"
-          ]
-        }
-      ]
-    },
-    {
-      "cell_type": "code",
-      "execution_count": 5,
-      "metadata": {
-        "colab": {
-          "base_uri": "https://localhost:8080/"
-        },
-        "id": "cteypCnsk7b2",
-        "outputId": "5c7ba42d-864f-46d0-83e2-1970e6f89f6a"
-      },
-      "outputs": [
-        {
-          "output_type": "stream",
-          "name": "stderr",
-          "text": [
-            "2025-04-26 15:02:12.440 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-            "2025-04-26 15:02:12.448 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-            "2025-04-26 15:02:12.454 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-            "2025-04-26 15:02:12.466 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-            "2025-04-26 15:02:12.470 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-            "2025-04-26 15:02:12.474 No runtime found, using MemoryCacheStorageManager\n",
-            "2025-04-26 15:02:12.483 No runtime found, using MemoryCacheStorageManager\n",
-            "2025-04-26 15:02:12.490 No runtime found, using MemoryCacheStorageManager\n",
-            "2025-04-26 15:02:12.494 No runtime found, using MemoryCacheStorageManager\n",
-            "2025-04-26 15:02:12.503 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-            "2025-04-26 15:02:12.506 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-            "2025-04-26 15:02:12.508 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-            "2025-04-26 15:02:12.510 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-            "2025-04-26 15:02:12.511 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-            "2025-04-26 15:02:12.513 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-            "2025-04-26 15:02:12.516 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-            "2025-04-26 15:02:12.518 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-            "2025-04-26 15:02:12.534 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-            "2025-04-26 15:02:12.536 No runtime found, using MemoryCacheStorageManager\n",
-            "2025-04-26 15:02:12.539 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-            "2025-04-26 15:02:12.546 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-            "2025-04-26 15:02:12.546 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-            "2025-04-26 15:02:12.559 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-            "2025-04-26 15:02:12.560 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-            "2025-04-26 15:02:12.561 No runtime found, using MemoryCacheStorageManager\n",
-            "2025-04-26 15:02:12.566 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-            "2025-04-26 15:02:12.567 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-            "2025-04-26 15:02:12.569 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-            "2025-04-26 15:02:12.573 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-            "2025-04-26 15:02:12.575 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-            "2025-04-26 15:02:12.583 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-            "2025-04-26 15:02:12.584 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-            "2025-04-26 15:02:12.585 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-            "2025-04-26 15:02:12.594 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-            "2025-04-26 15:02:12.595 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-            "2025-04-26 15:02:12.596 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-            "2025-04-26 15:02:12.597 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-            "2025-04-26 15:02:12.602 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-            "2025-04-26 15:02:12.603 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-            "2025-04-26 15:02:12.603 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-            "2025-04-26 15:02:12.613 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-            "2025-04-26 15:02:12.621 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-            "2025-04-26 15:02:12.622 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-            "2025-04-26 15:02:12.623 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-            "2025-04-26 15:02:12.625 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-            "2025-04-26 15:02:12.627 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-            "2025-04-26 15:02:12.630 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-            "2025-04-26 15:02:12.630 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-            "2025-04-26 15:02:12.632 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-            "2025-04-26 15:02:12.635 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-            "2025-04-26 15:02:12.636 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-            "2025-04-26 15:02:12.637 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-            "2025-04-26 15:02:12.640 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-            "2025-04-26 15:02:12.642 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-            "2025-04-26 15:02:12.643 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-            "2025-04-26 15:02:12.651 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-            "2025-04-26 15:02:12.652 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-            "2025-04-26 15:02:12.652 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-            "2025-04-26 15:02:12.653 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-            "2025-04-26 15:02:12.654 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n"
-          ]
-        },
-        {
-          "output_type": "execute_result",
-          "data": {
-            "text/plain": [
-              "DeltaGenerator(_root_container=1, _parent=DeltaGenerator())"
+    lista_features_safra = []
+    for index, row in _df_milho_proc.iterrows():
+        ano_agricola = row['ANO']; tipo_safra = row['safra']; produtividade = row['Produtividade_Anual']
+        meses_anos_target = []; meses_anos_base = None
+        if '1ª' in tipo_safra: meses_anos_base = meses_safra1
+        elif '2ª' in tipo_safra: meses_anos_base = meses_safra2
+        elif '3ª' in tipo_safra: meses_anos_base = meses_safra3
+        else: continue
+        for mes, deslocamento_ano in meses_anos_base: meses_anos_target.append((ano_agricola + deslocamento_ano, mes))
+        df_mensal_safra = _df_mensal[_df_mensal.set_index(['ANO', 'MES']).index.isin(meses_anos_target)]
+        if df_mensal_safra.empty: continue
+        features_safra_dict = {'ANO': ano_agricola, 'safra': tipo_safra, 'Produtividade_Anual': produtividade}
+        for agg_func, cols_to_agg in agg_config.items():
+            cols_existentes = [col for col in cols_to_agg if col in df_mensal_safra.columns]
+            if not cols_existentes: continue
+            try:
+                aggregated_data = df_mensal_safra[cols_existentes].agg(agg_func)
+                for col_original, valor_agregado in aggregated_data.items(): features_safra_dict[f"{col_original}_{agg_func}_safra"] = valor_agregado
+            except Exception as e_agg: print(f"Erro agregando {agg_func} para {ano_agricola}/{tipo_safra}: {e_agg}")
+        lista_features_safra.append(features_safra_dict)
+    if lista_features_safra:
+        df_modelar_safra = pd.DataFrame(lista_features_safra)
+        if 'ANO' in df_modelar_safra.columns and 'safra' in df_modelar_safra.columns:
+            df_modelar_safra = df_modelar_safra.set_index(['ANO', 'safra']).sort_index()
+            return df_modelar_safra
+    return None
+
+@st.cache_data
+def preparar_X_y(_df_modelar_safra):
+    """Prepara X e y a partir do DataFrame agregado por safra."""
+    # (Lógica idêntica à da Etapa 3)
+    if _df_modelar_safra is None or 'Produtividade_Anual' not in _df_modelar_safra.columns: return None, None, None
+    target = 'Produtividade_Anual'; y = _df_modelar_safra[target]
+    features_cols_init = [col for col in _df_modelar_safra.columns if col != target]
+    X = _df_modelar_safra[features_cols_init].copy()
+    X['ANO_f'] = X.index.get_level_values('ANO').astype(int)
+    X['safra_f'] = X.index.get_level_values('safra')
+    X = pd.get_dummies(X, columns=['safra_f'], prefix='safra', drop_first=True)
+    features_cols = X.columns.tolist()
+    if X.isnull().any().any():
+         st.warning("Preenchendo NaNs nas features com a média...")
+         numeric_cols = X.select_dtypes(include=np.number).columns
+         means = X[numeric_cols].mean(); means = means.fillna(0)
+         X.fillna(means, inplace=True)
+         if X.isnull().any().any(): st.error(f"NaNs persistentes: {X.columns[X.isnull().any()].tolist()}."); return None, None, None
+    return X, y, features_cols
+
+@st.cache_resource # Cache para o modelo carregado
+def carregar_modelo(model_path_func):
+    """Carrega o modelo .joblib salvo."""
+    if not os.path.exists(model_path_func):
+        st.error(f"Erro: Arquivo do modelo não encontrado em '{model_path_func}'. Execute a Etapa 3 para salvá-lo.")
+        return None
+    try:
+        model = joblib.load(model_path_func)
+        st.success(f"Modelo carregado com sucesso de: {model_path_func}")
+        return model
+    except Exception as e:
+        st.error(f"Erro ao carregar o modelo: {e}")
+        return None
+
+# --- Carregamento e Preparação dos Dados ---
+df_mensal, df_milho_proc = carregar_dados_base(consolidated_monthly_path, milho_path)
+df_modelar_safra = agregar_features_por_safra(df_mensal, df_milho_proc)
+X, y, features_cols = preparar_X_y(df_modelar_safra)
+best_model_rf = carregar_modelo(model_path)
+
+# --- Criação das Abas ---
+tab1, tab2 = st.tabs(["📊 Análise Exploratória", "🤖 Avaliação do Modelo"])
+
+# --- Aba 1: Análise Exploratória ---
+with tab1:
+    st.header("Análise Exploratória dos Dados")
+
+    if df_mensal is not None and df_milho_proc is not None:
+        st.markdown("Visualização das tendências e padrões nos dados originais processados.")
+
+        # Sub-abas para organizar a EDA
+        sub_tab_clima, sub_tab_ndvi, sub_tab_prod, sub_tab_corr = st.tabs([
+            "Clima", "NDVI (SatVeg)", "Produtividade", "Correlações"
+        ])
+
+        with sub_tab_clima:
+            st.subheader("Séries Temporais Climáticas (Médias Mensais)")
+            if 'DATA_MES' in df_mensal.columns:
+                fig_clima, axes_clima = plt.subplots(4, 1, figsize=(12, 10), sharex=True)
+                plot_vars_clima = {
+                    'TEMPERATURA_media_mensal': ('Temperatura (°C)', 'red', axes_clima[0]),
+                    'RADIACAO_media_mensal': ('Radiação (W/m² ?)', 'orange', axes_clima[1]),
+                    'PRECIPITACAO_mm_mensal_soma': ('Precipitação (mm/mês)', 'blue', axes_clima[2]),
+                    'UMIDADE_media_mensal': ('Umidade Relativa (%)', 'green', axes_clima[3])
+                    # Adicionar Vento se desejar
+                }
+                plot_count_clima = 0
+                for col, (label, color, ax) in plot_vars_clima.items():
+                    if col in df_mensal.columns and not df_mensal[col].isnull().all():
+                        ax.plot(df_mensal['DATA_MES'], df_mensal[col], label=label.split('(')[0].strip(), color=color, alpha=0.8)
+                        ax.set_ylabel(label)
+                        ax.grid(True, alpha=0.5); ax.legend(loc='upper left')
+                        plot_count_clima += 1
+
+                if plot_count_clima > 0:
+                    axes_clima[-1].set_xlabel('Data')
+                    plt.suptitle("Evolução Mensal das Variáveis Climáticas", y=1.02)
+                    plt.tight_layout(rect=[0, 0.03, 1, 0.98])
+                    st.pyplot(fig_clima)
+                else:
+                    st.warning("Não foi possível gerar gráficos climáticos (dados ausentes).")
+            else:
+                 st.warning("Coluna 'DATA_MES' não encontrada para plots climáticos.")
+
+        with sub_tab_ndvi:
+            st.subheader("NDVI SatVeg (Médio Mensal)")
+            if 'DATA_MES' in df_mensal.columns and 'NDVI_satveg_mensal' in df_mensal.columns:
+                # Série Temporal NDVI
+                fig_ndvi_ts, ax_ndvi_ts = plt.subplots(figsize=(12, 4))
+                ax_ndvi_ts.plot(df_mensal['DATA_MES'], df_mensal['NDVI_satveg_mensal'], marker='.', linestyle='-', label='NDVI SatVeg Médio Mensal')
+                ax_ndvi_ts.set_title('Série Temporal NDVI Médio Mensal (SatVeg)')
+                ax_ndvi_ts.set_xlabel('Data'); ax_ndvi_ts.set_ylabel('NDVI Médio Mensal')
+                ax_ndvi_ts.grid(True, alpha=0.5); ax_ndvi_ts.legend()
+                st.pyplot(fig_ndvi_ts)
+
+                # Perfil Sazonal Médio
+                if 'MES' in df_mensal.columns:
+                     df_perfil_st = df_mensal.dropna(subset=['MES', 'NDVI_satveg_mensal'])
+                     if not df_perfil_st.empty:
+                          perfil_ndvi = df_perfil_st.groupby('MES').agg(NDVI_medio=('NDVI_satveg_mensal', 'mean'), NDVI_std=('NDVI_satveg_mensal', 'std'))
+                          if not perfil_ndvi.empty:
+                               fig_ndvi_saz, ax_ndvi_saz = plt.subplots(figsize=(10, 5))
+                               ax_ndvi_saz.errorbar(perfil_ndvi.index, perfil_ndvi['NDVI_medio'], yerr=perfil_ndvi['NDVI_std'], label='NDVI SatVeg Médio ± Desv Padrão', fmt='-o', capsize=5)
+                               ax_ndvi_saz.set_title('Perfil Sazonal Médio do NDVI SatVeg')
+                               ax_ndvi_saz.set_xlabel('Mês do Ano'); ax_ndvi_saz.set_ylabel('Valor Médio NDVI')
+                               ax_ndvi_saz.set_xticks(range(1, 13)); ax_ndvi_saz.legend(); ax_ndvi_saz.grid(True)
+                               st.pyplot(fig_ndvi_saz)
+                          else: st.warning("Não foi possível calcular o perfil sazonal do NDVI.")
+                     else: st.warning("Não há dados válidos para o perfil sazonal do NDVI.")
+                else: st.warning("Coluna 'MES' não encontrada para perfil sazonal.")
+            else:
+                 st.warning("Colunas 'DATA_MES' ou 'NDVI_satveg_mensal' não encontradas.")
+
+        with sub_tab_prod:
+            st.subheader("Produtividade de Milho (CONAB - MT)")
+            colunas_num_prod = ['area_plantada_mil_ha', 'producao_mil_t', 'Produtividade_Anual']
+            colunas_num_prod_ok = [c for c in colunas_num_prod if c in df_milho_proc.columns]
+
+            if 'ANO' in df_milho_proc.columns and 'safra' in df_milho_proc.columns and colunas_num_prod_ok:
+                 # Evolução por Safra
+                 st.write("Evolução por Safra:")
+                 for coluna in colunas_num_prod_ok:
+                      fig_prod_ts, ax_prod_ts = plt.subplots(figsize=(12, 4))
+                      sns.lineplot(data=df_milho_proc, x='ANO', y=coluna, hue='safra', marker='o', errorbar=None, ax=ax_prod_ts)
+                      ax_prod_ts.set_title(f'Evolução - {coluna} por Safra')
+                      ax_prod_ts.set_xlabel('Ano'); ax_prod_ts.set_ylabel(coluna.replace('_', ' ').title())
+                      ax_prod_ts.legend(title='Safra'); ax_prod_ts.grid(True)
+                      st.pyplot(fig_prod_ts)
+
+                 # Boxplot Produtividade por Ano e Safra
+                 st.write("Distribuição da Produtividade por Ano e Safra:")
+                 df_milho_proc['ANO'] = pd.to_numeric(df_milho_proc['ANO'], errors='coerce')
+                 df_milho_proc_plot = df_milho_proc.dropna(subset=['ANO', 'Produtividade_Anual', 'safra'])
+                 if not df_milho_proc_plot.empty:
+                      fig_prod_box, ax_prod_box = plt.subplots(figsize=(14, 7))
+                      sns.boxplot(x='ANO', y='Produtividade_Anual', hue='safra', data=df_milho_proc_plot, ax=ax_prod_box)
+                      ax_prod_box.set_title('Distribuição da Produtividade Anual por Ano e Safra')
+                      ax_prod_box.set_xlabel('Ano'); ax_prod_box.set_ylabel('Produtividade (t/ha)')
+                      ax_prod_box.tick_params(axis='x', rotation=45)
+                      ax_prod_box.grid(True, axis='y')
+                      ax_prod_box.legend(title='Safra', bbox_to_anchor=(1.05, 1), loc='upper left')
+                      plt.tight_layout(rect=[0, 0, 0.9, 1])
+                      st.pyplot(fig_prod_box)
+                 else: st.warning("Não há dados válidos para gerar boxplot de produtividade.")
+            else:
+                 st.warning("Colunas necessárias para gráficos de produtividade não encontradas.")
+
+        with sub_tab_corr:
+            st.subheader("Matriz de Correlação (Base Mensal)")
+            st.markdown("Mostra a correlação linear entre as médias/somas mensais e a produtividade anual (repetida).")
+            colunas_corr_prod = [
+                'RADIACAO_media_mensal', 'TEMPERATURA_media_mensal', 'PRECIPITACAO_mm_mensal_soma',
+                'UMIDADE_media_mensal', 'VENTO_VEL_media_mensal', 'NDVI_satveg_mensal',
+                'Produtividade_Anual'
             ]
-          },
-          "metadata": {},
-          "execution_count": 5
-        }
-      ],
-      "source": [
-        "# -*- coding: utf-8 -*-\n",
-        "# Aplicação Streamlit para Visualização do Modelo e Análise Exploratória\n",
-        "\n",
-        "import streamlit as st\n",
-        "import pandas as pd\n",
-        "import numpy as np\n",
-        "import os\n",
-        "import joblib # Para carregar o modelo salvo\n",
-        "from sklearn.model_selection import train_test_split\n",
-        "from sklearn.ensemble import RandomForestRegressor # Apenas para type hint\n",
-        "from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error\n",
-        "import matplotlib.pyplot as plt\n",
-        "import seaborn as sns\n",
-        "# Importar display opcionalmente para tabelas no Colab (não usado no Streamlit direto)\n",
-        "# from IPython.display import display\n",
-        "\n",
-        "# --- Configurações Iniciais ---\n",
-        "st.set_page_config(layout=\"wide\", page_title=\"Dashboard Produtividade Milho\")\n",
-        "\n",
-        "st.title(\"🌽 Dashboard de Produtividade de Milho (Sorriso-MT)\")\n",
-        "st.markdown(\"Análise Exploratória dos Dados e Avaliação do Modelo Preditivo (RandomForest por Safra).\")\n",
-        "\n",
-        "# --- Definição Global de Caminhos ---\n",
-        "processed_folder = 'dados_processados'\n",
-        "results_folder = 'resultados'\n",
-        "model_folder = os.path.join(results_folder, 'modelos')\n",
-        "consolidated_monthly_path = os.path.join(processed_folder, 'base_consolidada_mensal.csv')\n",
-        "milho_path = os.path.join(processed_folder, 'milho.csv')\n",
-        "# Ajuste o nome do modelo se salvou com outro nome na Etapa 3\n",
-        "model_path = os.path.join(model_folder, 'modelo_final_rf_por_safra_otimizado.joblib')\n",
-        "\n",
-        "# --- Funções Auxiliares (Cache para Performance) ---\n",
-        "\n",
-        "@st.cache_data # Cache para dados carregados\n",
-        "def carregar_dados_base(monthly_path, milho_path_func):\n",
-        "    \"\"\"Carrega e faz uma preparação mínima nos DataFrames base.\"\"\"\n",
-        "    df_mensal = None\n",
-        "    df_milho_proc = None\n",
-        "    erro_carga = False\n",
-        "\n",
-        "    if not os.path.exists(monthly_path): st.error(f\"Erro: Arquivo não encontrado: {monthly_path}\"); erro_carga = True\n",
-        "    if not os.path.exists(milho_path_func): st.error(f\"Erro: Arquivo não encontrado: {milho_path_func}\"); erro_carga = True\n",
-        "    if erro_carga: return None, None\n",
-        "\n",
-        "    try:\n",
-        "        df_mensal = pd.read_csv(monthly_path)\n",
-        "        df_milho_proc = pd.read_csv(milho_path_func)\n",
-        "\n",
-        "        # Preparação mínima (tipos de dados chave)\n",
-        "        if 'ANO' in df_mensal.columns: df_mensal['ANO'] = pd.to_numeric(df_mensal['ANO'], errors='coerce').astype('Int64')\n",
-        "        else: raise ValueError(\"Coluna 'ANO' ausente em df_mensal.\")\n",
-        "        if 'MES' in df_mensal.columns: df_mensal['MES'] = pd.to_numeric(df_mensal['MES'], errors='coerce').astype('Int64')\n",
-        "        else: raise ValueError(\"Coluna 'MES' ausente em df_mensal.\")\n",
-        "        df_mensal.dropna(subset=['ANO', 'MES'], inplace=True)\n",
-        "        # Cria coluna DATA se não existir, para plots temporais\n",
-        "        if 'DATA_MES' not in df_mensal.columns:\n",
-        "             df_mensal['DATA_MES'] = pd.to_datetime(df_mensal['ANO'].astype(str) + '-' + df_mensal['MES'].astype(str) + '-01', errors='coerce')\n",
-        "\n",
-        "        if 'ANO' in df_milho_proc.columns: df_milho_proc['ANO'] = pd.to_numeric(df_milho_proc['ANO'], errors='coerce').astype('Int64')\n",
-        "        else: raise ValueError(\"Coluna 'ANO' ausente em df_milho_proc.\")\n",
-        "        if 'Produtividade_Anual' in df_milho_proc.columns: df_milho_proc['Produtividade_Anual'] = pd.to_numeric(df_milho_proc['Produtividade_Anual'], errors='coerce')\n",
-        "        else: raise ValueError(\"Coluna 'Produtividade_Anual' ausente em df_milho_proc.\")\n",
-        "        if 'safra' not in df_milho_proc.columns: raise ValueError(\"Coluna 'safra' ausente em df_milho_proc.\")\n",
-        "        df_milho_proc.dropna(subset=['ANO', 'Produtividade_Anual', 'safra'], inplace=True)\n",
-        "\n",
-        "        return df_mensal, df_milho_proc\n",
-        "\n",
-        "    except Exception as e:\n",
-        "        st.error(f\"Erro ao carregar ou preparar dados base: {e}\")\n",
-        "        return None, None\n",
-        "\n",
-        "@st.cache_data\n",
-        "def agregar_features_por_safra(_df_mensal, _df_milho_proc):\n",
-        "    \"\"\"Agrega features climáticas/NDVI por safra.\"\"\"\n",
-        "    # (Lógica de agregação idêntica à da Etapa 3)\n",
-        "    if _df_mensal is None or _df_milho_proc is None: return None\n",
-        "    meses_safra1 = [(10, -1), (11, -1), (12, -1), (1, 0), (2, 0)]\n",
-        "    meses_safra2 = [(2, 0), (3, 0), (4, 0), (5, 0), (6, 0), (7, 0)]\n",
-        "    meses_safra3 = [(5, 0), (6, 0), (7, 0), (8, 0), (9, 0)]\n",
-        "    agg_config = {\n",
-        "        'mean': ['RADIACAO_media_mensal', 'TEMPERATURA_media_mensal', 'UMIDADE_media_mensal', 'VENTO_VEL_media_mensal', 'NDVI_satveg_mensal'],\n",
-        "        'min':  ['RADIACAO_media_mensal', 'TEMPERATURA_media_mensal', 'UMIDADE_media_mensal', 'NDVI_satveg_mensal'],\n",
-        "        'max':  ['RADIACAO_media_mensal', 'TEMPERATURA_media_mensal', 'UMIDADE_media_mensal', 'VENTO_VEL_media_mensal', 'NDVI_satveg_mensal'],\n",
-        "        'sum':  ['PRECIPITACAO_mm_mensal_soma']\n",
-        "    }\n",
-        "    lista_features_safra = []\n",
-        "    for index, row in _df_milho_proc.iterrows():\n",
-        "        ano_agricola = row['ANO']; tipo_safra = row['safra']; produtividade = row['Produtividade_Anual']\n",
-        "        meses_anos_target = []; meses_anos_base = None\n",
-        "        if '1ª' in tipo_safra: meses_anos_base = meses_safra1\n",
-        "        elif '2ª' in tipo_safra: meses_anos_base = meses_safra2\n",
-        "        elif '3ª' in tipo_safra: meses_anos_base = meses_safra3\n",
-        "        else: continue\n",
-        "        for mes, deslocamento_ano in meses_anos_base: meses_anos_target.append((ano_agricola + deslocamento_ano, mes))\n",
-        "        df_mensal_safra = _df_mensal[_df_mensal.set_index(['ANO', 'MES']).index.isin(meses_anos_target)]\n",
-        "        if df_mensal_safra.empty: continue\n",
-        "        features_safra_dict = {'ANO': ano_agricola, 'safra': tipo_safra, 'Produtividade_Anual': produtividade}\n",
-        "        for agg_func, cols_to_agg in agg_config.items():\n",
-        "            cols_existentes = [col for col in cols_to_agg if col in df_mensal_safra.columns]\n",
-        "            if not cols_existentes: continue\n",
-        "            try:\n",
-        "                aggregated_data = df_mensal_safra[cols_existentes].agg(agg_func)\n",
-        "                for col_original, valor_agregado in aggregated_data.items(): features_safra_dict[f\"{col_original}_{agg_func}_safra\"] = valor_agregado\n",
-        "            except Exception as e_agg: print(f\"Erro agregando {agg_func} para {ano_agricola}/{tipo_safra}: {e_agg}\")\n",
-        "        lista_features_safra.append(features_safra_dict)\n",
-        "    if lista_features_safra:\n",
-        "        df_modelar_safra = pd.DataFrame(lista_features_safra)\n",
-        "        if 'ANO' in df_modelar_safra.columns and 'safra' in df_modelar_safra.columns:\n",
-        "            df_modelar_safra = df_modelar_safra.set_index(['ANO', 'safra']).sort_index()\n",
-        "            return df_modelar_safra\n",
-        "    return None\n",
-        "\n",
-        "@st.cache_data\n",
-        "def preparar_X_y(_df_modelar_safra):\n",
-        "    \"\"\"Prepara X e y a partir do DataFrame agregado por safra.\"\"\"\n",
-        "    # (Lógica idêntica à da Etapa 3)\n",
-        "    if _df_modelar_safra is None or 'Produtividade_Anual' not in _df_modelar_safra.columns: return None, None, None\n",
-        "    target = 'Produtividade_Anual'; y = _df_modelar_safra[target]\n",
-        "    features_cols_init = [col for col in _df_modelar_safra.columns if col != target]\n",
-        "    X = _df_modelar_safra[features_cols_init].copy()\n",
-        "    X['ANO_f'] = X.index.get_level_values('ANO').astype(int)\n",
-        "    X['safra_f'] = X.index.get_level_values('safra')\n",
-        "    X = pd.get_dummies(X, columns=['safra_f'], prefix='safra', drop_first=True)\n",
-        "    features_cols = X.columns.tolist()\n",
-        "    if X.isnull().any().any():\n",
-        "         st.warning(\"Preenchendo NaNs nas features com a média...\")\n",
-        "         numeric_cols = X.select_dtypes(include=np.number).columns\n",
-        "         means = X[numeric_cols].mean(); means = means.fillna(0)\n",
-        "         X.fillna(means, inplace=True)\n",
-        "         if X.isnull().any().any(): st.error(f\"NaNs persistentes: {X.columns[X.isnull().any()].tolist()}.\"); return None, None, None\n",
-        "    return X, y, features_cols\n",
-        "\n",
-        "@st.cache_resource # Cache para o modelo carregado\n",
-        "def carregar_modelo(model_path_func):\n",
-        "    \"\"\"Carrega o modelo .joblib salvo.\"\"\"\n",
-        "    if not os.path.exists(model_path_func):\n",
-        "        st.error(f\"Erro: Arquivo do modelo não encontrado em '{model_path_func}'. Execute a Etapa 3 para salvá-lo.\")\n",
-        "        return None\n",
-        "    try:\n",
-        "        model = joblib.load(model_path_func)\n",
-        "        st.success(f\"Modelo carregado com sucesso de: {model_path_func}\")\n",
-        "        return model\n",
-        "    except Exception as e:\n",
-        "        st.error(f\"Erro ao carregar o modelo: {e}\")\n",
-        "        return None\n",
-        "\n",
-        "# --- Carregamento e Preparação dos Dados ---\n",
-        "df_mensal, df_milho_proc = carregar_dados_base(consolidated_monthly_path, milho_path)\n",
-        "df_modelar_safra = agregar_features_por_safra(df_mensal, df_milho_proc)\n",
-        "X, y, features_cols = preparar_X_y(df_modelar_safra)\n",
-        "best_model_rf = carregar_modelo(model_path)\n",
-        "\n",
-        "# --- Criação das Abas ---\n",
-        "tab1, tab2 = st.tabs([\"📊 Análise Exploratória\", \"🤖 Avaliação do Modelo\"])\n",
-        "\n",
-        "# --- Aba 1: Análise Exploratória ---\n",
-        "with tab1:\n",
-        "    st.header(\"Análise Exploratória dos Dados\")\n",
-        "\n",
-        "    if df_mensal is not None and df_milho_proc is not None:\n",
-        "        st.markdown(\"Visualização das tendências e padrões nos dados originais processados.\")\n",
-        "\n",
-        "        # Sub-abas para organizar a EDA\n",
-        "        sub_tab_clima, sub_tab_ndvi, sub_tab_prod, sub_tab_corr = st.tabs([\n",
-        "            \"Clima\", \"NDVI (SatVeg)\", \"Produtividade\", \"Correlações\"\n",
-        "        ])\n",
-        "\n",
-        "        with sub_tab_clima:\n",
-        "            st.subheader(\"Séries Temporais Climáticas (Médias Mensais)\")\n",
-        "            if 'DATA_MES' in df_mensal.columns:\n",
-        "                fig_clima, axes_clima = plt.subplots(4, 1, figsize=(12, 10), sharex=True)\n",
-        "                plot_vars_clima = {\n",
-        "                    'TEMPERATURA_media_mensal': ('Temperatura (°C)', 'red', axes_clima[0]),\n",
-        "                    'RADIACAO_media_mensal': ('Radiação (W/m² ?)', 'orange', axes_clima[1]),\n",
-        "                    'PRECIPITACAO_mm_mensal_soma': ('Precipitação (mm/mês)', 'blue', axes_clima[2]),\n",
-        "                    'UMIDADE_media_mensal': ('Umidade Relativa (%)', 'green', axes_clima[3])\n",
-        "                    # Adicionar Vento se desejar\n",
-        "                }\n",
-        "                plot_count_clima = 0\n",
-        "                for col, (label, color, ax) in plot_vars_clima.items():\n",
-        "                    if col in df_mensal.columns and not df_mensal[col].isnull().all():\n",
-        "                        ax.plot(df_mensal['DATA_MES'], df_mensal[col], label=label.split('(')[0].strip(), color=color, alpha=0.8)\n",
-        "                        ax.set_ylabel(label)\n",
-        "                        ax.grid(True, alpha=0.5); ax.legend(loc='upper left')\n",
-        "                        plot_count_clima += 1\n",
-        "\n",
-        "                if plot_count_clima > 0:\n",
-        "                    axes_clima[-1].set_xlabel('Data')\n",
-        "                    plt.suptitle(\"Evolução Mensal das Variáveis Climáticas\", y=1.02)\n",
-        "                    plt.tight_layout(rect=[0, 0.03, 1, 0.98])\n",
-        "                    st.pyplot(fig_clima)\n",
-        "                else:\n",
-        "                    st.warning(\"Não foi possível gerar gráficos climáticos (dados ausentes).\")\n",
-        "            else:\n",
-        "                 st.warning(\"Coluna 'DATA_MES' não encontrada para plots climáticos.\")\n",
-        "\n",
-        "        with sub_tab_ndvi:\n",
-        "            st.subheader(\"NDVI SatVeg (Médio Mensal)\")\n",
-        "            if 'DATA_MES' in df_mensal.columns and 'NDVI_satveg_mensal' in df_mensal.columns:\n",
-        "                # Série Temporal NDVI\n",
-        "                fig_ndvi_ts, ax_ndvi_ts = plt.subplots(figsize=(12, 4))\n",
-        "                ax_ndvi_ts.plot(df_mensal['DATA_MES'], df_mensal['NDVI_satveg_mensal'], marker='.', linestyle='-', label='NDVI SatVeg Médio Mensal')\n",
-        "                ax_ndvi_ts.set_title('Série Temporal NDVI Médio Mensal (SatVeg)')\n",
-        "                ax_ndvi_ts.set_xlabel('Data'); ax_ndvi_ts.set_ylabel('NDVI Médio Mensal')\n",
-        "                ax_ndvi_ts.grid(True, alpha=0.5); ax_ndvi_ts.legend()\n",
-        "                st.pyplot(fig_ndvi_ts)\n",
-        "\n",
-        "                # Perfil Sazonal Médio\n",
-        "                if 'MES' in df_mensal.columns:\n",
-        "                     df_perfil_st = df_mensal.dropna(subset=['MES', 'NDVI_satveg_mensal'])\n",
-        "                     if not df_perfil_st.empty:\n",
-        "                          perfil_ndvi = df_perfil_st.groupby('MES').agg(NDVI_medio=('NDVI_satveg_mensal', 'mean'), NDVI_std=('NDVI_satveg_mensal', 'std'))\n",
-        "                          if not perfil_ndvi.empty:\n",
-        "                               fig_ndvi_saz, ax_ndvi_saz = plt.subplots(figsize=(10, 5))\n",
-        "                               ax_ndvi_saz.errorbar(perfil_ndvi.index, perfil_ndvi['NDVI_medio'], yerr=perfil_ndvi['NDVI_std'], label='NDVI SatVeg Médio ± Desv Padrão', fmt='-o', capsize=5)\n",
-        "                               ax_ndvi_saz.set_title('Perfil Sazonal Médio do NDVI SatVeg')\n",
-        "                               ax_ndvi_saz.set_xlabel('Mês do Ano'); ax_ndvi_saz.set_ylabel('Valor Médio NDVI')\n",
-        "                               ax_ndvi_saz.set_xticks(range(1, 13)); ax_ndvi_saz.legend(); ax_ndvi_saz.grid(True)\n",
-        "                               st.pyplot(fig_ndvi_saz)\n",
-        "                          else: st.warning(\"Não foi possível calcular o perfil sazonal do NDVI.\")\n",
-        "                     else: st.warning(\"Não há dados válidos para o perfil sazonal do NDVI.\")\n",
-        "                else: st.warning(\"Coluna 'MES' não encontrada para perfil sazonal.\")\n",
-        "            else:\n",
-        "                 st.warning(\"Colunas 'DATA_MES' ou 'NDVI_satveg_mensal' não encontradas.\")\n",
-        "\n",
-        "        with sub_tab_prod:\n",
-        "            st.subheader(\"Produtividade de Milho (CONAB - MT)\")\n",
-        "            colunas_num_prod = ['area_plantada_mil_ha', 'producao_mil_t', 'Produtividade_Anual']\n",
-        "            colunas_num_prod_ok = [c for c in colunas_num_prod if c in df_milho_proc.columns]\n",
-        "\n",
-        "            if 'ANO' in df_milho_proc.columns and 'safra' in df_milho_proc.columns and colunas_num_prod_ok:\n",
-        "                 # Evolução por Safra\n",
-        "                 st.write(\"Evolução por Safra:\")\n",
-        "                 for coluna in colunas_num_prod_ok:\n",
-        "                      fig_prod_ts, ax_prod_ts = plt.subplots(figsize=(12, 4))\n",
-        "                      sns.lineplot(data=df_milho_proc, x='ANO', y=coluna, hue='safra', marker='o', errorbar=None, ax=ax_prod_ts)\n",
-        "                      ax_prod_ts.set_title(f'Evolução - {coluna} por Safra')\n",
-        "                      ax_prod_ts.set_xlabel('Ano'); ax_prod_ts.set_ylabel(coluna.replace('_', ' ').title())\n",
-        "                      ax_prod_ts.legend(title='Safra'); ax_prod_ts.grid(True)\n",
-        "                      st.pyplot(fig_prod_ts)\n",
-        "\n",
-        "                 # Boxplot Produtividade por Ano e Safra\n",
-        "                 st.write(\"Distribuição da Produtividade por Ano e Safra:\")\n",
-        "                 df_milho_proc['ANO'] = pd.to_numeric(df_milho_proc['ANO'], errors='coerce')\n",
-        "                 df_milho_proc_plot = df_milho_proc.dropna(subset=['ANO', 'Produtividade_Anual', 'safra'])\n",
-        "                 if not df_milho_proc_plot.empty:\n",
-        "                      fig_prod_box, ax_prod_box = plt.subplots(figsize=(14, 7))\n",
-        "                      sns.boxplot(x='ANO', y='Produtividade_Anual', hue='safra', data=df_milho_proc_plot, ax=ax_prod_box)\n",
-        "                      ax_prod_box.set_title('Distribuição da Produtividade Anual por Ano e Safra')\n",
-        "                      ax_prod_box.set_xlabel('Ano'); ax_prod_box.set_ylabel('Produtividade (t/ha)')\n",
-        "                      ax_prod_box.tick_params(axis='x', rotation=45)\n",
-        "                      ax_prod_box.grid(True, axis='y')\n",
-        "                      ax_prod_box.legend(title='Safra', bbox_to_anchor=(1.05, 1), loc='upper left')\n",
-        "                      plt.tight_layout(rect=[0, 0, 0.9, 1])\n",
-        "                      st.pyplot(fig_prod_box)\n",
-        "                 else: st.warning(\"Não há dados válidos para gerar boxplot de produtividade.\")\n",
-        "            else:\n",
-        "                 st.warning(\"Colunas necessárias para gráficos de produtividade não encontradas.\")\n",
-        "\n",
-        "        with sub_tab_corr:\n",
-        "            st.subheader(\"Matriz de Correlação (Base Mensal)\")\n",
-        "            st.markdown(\"Mostra a correlação linear entre as médias/somas mensais e a produtividade anual (repetida).\")\n",
-        "            colunas_corr_prod = [\n",
-        "                'RADIACAO_media_mensal', 'TEMPERATURA_media_mensal', 'PRECIPITACAO_mm_mensal_soma',\n",
-        "                'UMIDADE_media_mensal', 'VENTO_VEL_media_mensal', 'NDVI_satveg_mensal',\n",
-        "                'Produtividade_Anual'\n",
-        "            ]\n",
-        "            colunas_corr_existentes = [col for col in colunas_corr_prod if col in df_consolidado_mensal.columns]\n",
-        "\n",
-        "            if len(colunas_corr_existentes) > 1:\n",
-        "                df_corr = df_consolidado_mensal[colunas_corr_existentes].dropna()\n",
-        "                if not df_corr.empty and len(df_corr) > 1:\n",
-        "                     matriz_corr_final = df_corr.corr()\n",
-        "                     fig_corr, ax_corr = plt.subplots(figsize=(10, 8))\n",
-        "                     sns.heatmap(matriz_corr_final, annot=True, cmap='coolwarm', fmt=\".2f\", linewidths=.5, ax=ax_corr)\n",
-        "                     ax_corr.set_title('Matriz de Correlação (Base Mensal, Incluindo Produtividade)')\n",
-        "                     st.pyplot(fig_corr)\n",
-        "\n",
-        "                     if 'Produtividade_Anual' in matriz_corr_final.columns:\n",
-        "                          st.write(\"**Correlação com Produtividade_Anual:**\")\n",
-        "                          st.dataframe(matriz_corr_final['Produtividade_Anual'].sort_values(ascending=False).to_frame())\n",
-        "                     else: st.warning(\"Coluna 'Produtividade_Anual' não encontrada na matriz.\")\n",
-        "                else: st.warning(\"Não há dados suficientes após remover NaNs para calcular a matriz de correlação.\")\n",
-        "            else: st.warning(\"Não há colunas suficientes ou válidas para calcular a matriz de correlação final.\")\n",
-        "\n",
-        "    else:\n",
-        "        st.error(\"Falha ao carregar os dados necessários para a Análise Exploratória.\")\n",
-        "\n",
-        "\n",
-        "# --- Aba 2: Avaliação do Modelo ---\n",
-        "with tab2:\n",
-        "    st.header(\"Avaliação do Modelo Otimizado (RandomForest por Safra)\")\n",
-        "\n",
-        "    # Verifica se tudo carregou e foi preparado para o modelo\n",
-        "    if X is not None and y is not None and best_model_rf is not None:\n",
-        "\n",
-        "        # Recriar a divisão Treino/Teste\n",
-        "        X_train, X_test, y_train, y_test = None, None, None, None\n",
-        "        try:\n",
-        "            safra_original = df_modelar_safra.loc[X.index].index.get_level_values('safra')\n",
-        "            test_size_ratio = 0.25\n",
-        "            min_samples_per_class = 2\n",
-        "            counts = safra_original.value_counts()\n",
-        "            y = y.loc[X.index] # Alinhamento\n",
-        "\n",
-        "            if safra_original.nunique() > 1 and all(counts >= min_samples_per_class):\n",
-        "                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size_ratio, random_state=42, stratify=safra_original)\n",
-        "            else:\n",
-        "                st.warning(\"Não foi possível estratificar. Usando divisão aleatória simples.\")\n",
-        "                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size_ratio, random_state=42)\n",
-        "            st.write(f\"Dados divididos para avaliação: {len(X_train)} treino, {len(X_test)} teste.\")\n",
-        "\n",
-        "        except Exception as e_split:\n",
-        "             st.error(f\"Erro ao recriar divisão treino/teste: {e_split}\")\n",
-        "\n",
-        "        # Avaliar no conjunto de teste\n",
-        "        if X_test is not None and y_test is not None:\n",
-        "            try:\n",
-        "                X_test = X_test.reindex(columns=X_train.columns, fill_value=0) # Garante mesmas colunas\n",
-        "                y_pred = best_model_rf.predict(X_test)\n",
-        "                r2 = r2_score(y_test, y_pred)\n",
-        "                rmse = np.sqrt(mean_squared_error(y_test, y_pred))\n",
-        "                mae = mean_absolute_error(y_test, y_pred)\n",
-        "\n",
-        "                st.subheader(\"Métricas de Desempenho (Conjunto de Teste)\")\n",
-        "                col1, col2, col3 = st.columns(3)\n",
-        "                col1.metric(\"R² (R-quadrado)\", f\"{r2:.4f}\")\n",
-        "                col2.metric(\"RMSE (t/ha)\", f\"{rmse:.4f}\")\n",
-        "                col3.metric(\"MAE (t/ha)\", f\"{mae:.4f}\")\n",
-        "                st.caption(f\"R²: Proporção da variância explicada. RMSE/MAE: Erro médio da previsão.\")\n",
-        "\n",
-        "                st.subheader(\"Gráficos de Avaliação do Modelo\")\n",
-        "                col_g1, col_g2 = st.columns(2)\n",
-        "\n",
-        "                with col_g1:\n",
-        "                    fig1, ax1 = plt.subplots(figsize=(6, 6))\n",
-        "                    ax1.scatter(y_test, y_pred, alpha=0.7, edgecolors='k', s=50)\n",
-        "                    min_val = min(y_test.min(), y_pred.min()) - 0.5; max_val = max(y_test.max(), y_pred.max()) + 0.5\n",
-        "                    ax1.plot([min_val, max_val], [min_val, max_val], '--r', linewidth=2, label='Ideal (y=x)')\n",
-        "                    ax1.set_xlabel('Produtividade Real (t/ha)'); ax1.set_ylabel('Produtividade Prevista (t/ha)')\n",
-        "                    ax1.set_title('Real vs. Previsto (Teste)'); ax1.legend(); ax1.grid(True); ax1.axis('equal'); ax1.set_xlim(min_val, max_val); ax1.set_ylim(min_val, max_val)\n",
-        "                    st.pyplot(fig1)\n",
-        "\n",
-        "                with col_g2:\n",
-        "                    if hasattr(best_model_rf, 'feature_importances_') and hasattr(X_train, 'columns'):\n",
-        "                        importances = best_model_rf.feature_importances_\n",
-        "                        feature_names = X_train.columns\n",
-        "                        feature_importance_df = pd.DataFrame({'Feature': feature_names, 'Importance': importances})\n",
-        "                        feature_importance_df = feature_importance_df.sort_values(by='Importance', ascending=False)\n",
-        "                        fig2, ax2 = plt.subplots(figsize=(6, 7))\n",
-        "                        sns.barplot(x='Importance', y='Feature', data=feature_importance_df.head(15), ax=ax2, palette='viridis')\n",
-        "                        ax2.set_title('Importância das Features (Modelo Otimizado)')\n",
-        "                        plt.tight_layout()\n",
-        "                        st.pyplot(fig2)\n",
-        "                    else: st.warning(\"Não foi possível extrair a importância das features.\")\n",
-        "\n",
-        "                if st.checkbox(\"Mostrar Tabela de Comparação Detalhada\"):\n",
-        "                    st.subheader(\"Comparação Detalhada (Conjunto de Teste)\")\n",
-        "                    df_resultados = pd.DataFrame({'Real': y_test, 'Previsto': y_pred}, index=y_test.index)\n",
-        "                    df_resultados['Erro'] = df_resultados['Real'] - df_resultados['Previsto']\n",
-        "                    df_resultados['Erro (%)'] = (df_resultados['Erro'] / df_resultados['Real']) * 100\n",
-        "                    st.dataframe(df_resultados.style.format({'Real': '{:.2f}', 'Previsto': '{:.2f}', 'Erro': '{:.2f}', 'Erro (%)': '{:.1f}%'}).background_gradient(cmap='RdYlGn_r', subset=['Erro'], axis=0, low=0.4, high=0.4))\n",
-        "\n",
-        "            except Exception as e_eval: st.error(f\"Erro ao avaliar o modelo no conjunto de teste: {e_eval}\")\n",
-        "        else: st.error(\"Não foi possível recriar os dados de teste para avaliação.\")\n",
-        "    else:\n",
-        "        st.error(\"Não foi possível carregar dados ou modelo para avaliação. Verifique as etapas anteriores e os caminhos.\")\n",
-        "\n",
-        "# --- Sidebar ---\n",
-        "st.sidebar.header(\"Sobre\")\n",
-        "st.sidebar.info(\"Dashboard de previsão de produtividade de milho (Sorriso-MT) usando RandomForest, dados climáticos e NDVI SatVeg por safra.\")\n",
-        "st.sidebar.header(\"Arquivos Necessários\")\n",
-        "st.sidebar.markdown(f\"- `{os.path.basename(consolidated_monthly_path)}`\")\n",
-        "st.sidebar.markdown(f\"- `{os.path.basename(milho_path)}`\")\n",
-        "st.sidebar.markdown(f\"- `{os.path.basename(model_path)}`\")\n",
-        "# st.sidebar.markdown(f\"*(Opcional: `{os.path.basename(solo_path)}`)*\") # Comentado pois não usamos solo\n",
-        "\n",
-        "\n",
-        "\n"
-      ]
-    }
-  ]
-}
+            colunas_corr_existentes = [col for col in colunas_corr_prod if col in df_consolidado_mensal.columns]
+
+            if len(colunas_corr_existentes) > 1:
+                df_corr = df_consolidado_mensal[colunas_corr_existentes].dropna()
+                if not df_corr.empty and len(df_corr) > 1:
+                     matriz_corr_final = df_corr.corr()
+                     fig_corr, ax_corr = plt.subplots(figsize=(10, 8))
+                     sns.heatmap(matriz_corr_final, annot=True, cmap='coolwarm', fmt=".2f", linewidths=.5, ax=ax_corr)
+                     ax_corr.set_title('Matriz de Correlação (Base Mensal, Incluindo Produtividade)')
+                     st.pyplot(fig_corr)
+
+                     if 'Produtividade_Anual' in matriz_corr_final.columns:
+                          st.write("**Correlação com Produtividade_Anual:**")
+                          st.dataframe(matriz_corr_final['Produtividade_Anual'].sort_values(ascending=False).to_frame())
+                     else: st.warning("Coluna 'Produtividade_Anual' não encontrada na matriz.")
+                else: st.warning("Não há dados suficientes após remover NaNs para calcular a matriz de correlação.")
+            else: st.warning("Não há colunas suficientes ou válidas para calcular a matriz de correlação final.")
+
+    else:
+        st.error("Falha ao carregar os dados necessários para a Análise Exploratória.")
+
+
+# --- Aba 2: Avaliação do Modelo ---
+with tab2:
+    st.header("Avaliação do Modelo Otimizado (RandomForest por Safra)")
+
+    # Verifica se tudo carregou e foi preparado para o modelo
+    if X is not None and y is not None and best_model_rf is not None:
+
+        # Recriar a divisão Treino/Teste
+        X_train, X_test, y_train, y_test = None, None, None, None
+        try:
+            safra_original = df_modelar_safra.loc[X.index].index.get_level_values('safra')
+            test_size_ratio = 0.25
+            min_samples_per_class = 2
+            counts = safra_original.value_counts()
+            y = y.loc[X.index] # Alinhamento
+
+            if safra_original.nunique() > 1 and all(counts >= min_samples_per_class):
+                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size_ratio, random_state=42, stratify=safra_original)
+            else:
+                st.warning("Não foi possível estratificar. Usando divisão aleatória simples.")
+                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size_ratio, random_state=42)
+            st.write(f"Dados divididos para avaliação: {len(X_train)} treino, {len(X_test)} teste.")
+
+        except Exception as e_split:
+             st.error(f"Erro ao recriar divisão treino/teste: {e_split}")
+
+        # Avaliar no conjunto de teste
+        if X_test is not None and y_test is not None:
+            try:
+                X_test = X_test.reindex(columns=X_train.columns, fill_value=0) # Garante mesmas colunas
+                y_pred = best_model_rf.predict(X_test)
+                r2 = r2_score(y_test, y_pred)
+                rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+                mae = mean_absolute_error(y_test, y_pred)
+
+                st.subheader("Métricas de Desempenho (Conjunto de Teste)")
+                col1, col2, col3 = st.columns(3)
+                col1.metric("R² (R-quadrado)", f"{r2:.4f}")
+                col2.metric("RMSE (t/ha)", f"{rmse:.4f}")
+                col3.metric("MAE (t/ha)", f"{mae:.4f}")
+                st.caption(f"R²: Proporção da variância explicada. RMSE/MAE: Erro médio da previsão.")
+
+                st.subheader("Gráficos de Avaliação do Modelo")
+                col_g1, col_g2 = st.columns(2)
+
+                with col_g1:
+                    fig1, ax1 = plt.subplots(figsize=(6, 6))
+                    ax1.scatter(y_test, y_pred, alpha=0.7, edgecolors='k', s=50)
+                    min_val = min(y_test.min(), y_pred.min()) - 0.5; max_val = max(y_test.max(), y_pred.max()) + 0.5
+                    ax1.plot([min_val, max_val], [min_val, max_val], '--r', linewidth=2, label='Ideal (y=x)')
+                    ax1.set_xlabel('Produtividade Real (t/ha)'); ax1.set_ylabel('Produtividade Prevista (t/ha)')
+                    ax1.set_title('Real vs. Previsto (Teste)'); ax1.legend(); ax1.grid(True); ax1.axis('equal'); ax1.set_xlim(min_val, max_val); ax1.set_ylim(min_val, max_val)
+                    st.pyplot(fig1)
+
+                with col_g2:
+                    if hasattr(best_model_rf, 'feature_importances_') and hasattr(X_train, 'columns'):
+                        importances = best_model_rf.feature_importances_
+                        feature_names = X_train.columns
+                        feature_importance_df = pd.DataFrame({'Feature': feature_names, 'Importance': importances})
+                        feature_importance_df = feature_importance_df.sort_values(by='Importance', ascending=False)
+                        fig2, ax2 = plt.subplots(figsize=(6, 7))
+                        sns.barplot(x='Importance', y='Feature', data=feature_importance_df.head(15), ax=ax2, palette='viridis')
+                        ax2.set_title('Importância das Features (Modelo Otimizado)')
+                        plt.tight_layout()
+                        st.pyplot(fig2)
+                    else: st.warning("Não foi possível extrair a importância das features.")
+
+                if st.checkbox("Mostrar Tabela de Comparação Detalhada"):
+                    st.subheader("Comparação Detalhada (Conjunto de Teste)")
+                    df_resultados = pd.DataFrame({'Real': y_test, 'Previsto': y_pred}, index=y_test.index)
+                    df_resultados['Erro'] = df_resultados['Real'] - df_resultados['Previsto']
+                    df_resultados['Erro (%)'] = (df_resultados['Erro'] / df_resultados['Real']) * 100
+                    st.dataframe(df_resultados.style.format({'Real': '{:.2f}', 'Previsto': '{:.2f}', 'Erro': '{:.2f}', 'Erro (%)': '{:.1f}%'}).background_gradient(cmap='RdYlGn_r', subset=['Erro'], axis=0, low=0.4, high=0.4))
+
+            except Exception as e_eval: st.error(f"Erro ao avaliar o modelo no conjunto de teste: {e_eval}")
+        else: st.error("Não foi possível recriar os dados de teste para avaliação.")
+    else:
+        st.error("Não foi possível carregar dados ou modelo para avaliação. Verifique as etapas anteriores e os caminhos.")
+
+# --- Sidebar ---
+st.sidebar.header("Sobre")
+st.sidebar.info("Dashboard de previsão de produtividade de milho (Sorriso-MT) usando RandomForest, dados climáticos e NDVI SatVeg por safra.")
+st.sidebar.header("Arquivos Necessários")
+st.sidebar.markdown(f"- `{os.path.basename(consolidated_monthly_path)}`")
+st.sidebar.markdown(f"- `{os.path.basename(milho_path)}`")
+st.sidebar.markdown(f"- `{os.path.basename(model_path)}`")
+# st.sidebar.markdown(f"*(Opcional: `{os.path.basename(solo_path)}`)*") # Comentado pois não usamos solo
+
