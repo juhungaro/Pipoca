@@ -42,7 +42,7 @@ O projeto foi dividido nas seguintes etapas principais:
     * *Fonte:* [CONAB - Série Histórica Grãos](https://portaldeinformacoes.conab.gov.br/downloads/arquivos/SerieHistoricaGraos.txt) 🌽
 * **Dados de Solo (Não Utilizado no Modelo Final):** Tentativas foram feitas para extrair dados médios de propriedades físico-químicas do solo (argila, silte, areia, pH, carbono orgânico) para a região usando o dataset SoilGrids via Google Earth Engine. No entanto, devido a problemas de acesso e/ou IDs de assets desatualizados, esses dados não foram incorporados ao modelo final apresentado.
 
-## 1️⃣ Etapa 1 - Pré-Processamento de Dados
+## Etapa 1 - Pré-Processamento de Dados
 Nesta etapa, cada fonte de dados foi processada individualmente para limpeza, tratamento e formatação, gerando arquivos CSV intermediários na pasta `dados_processados/`.
 
 * **Clima (INMET):**
@@ -76,7 +76,7 @@ Nesta etapa, cada fonte de dados foi processada individualmente para limpeza, tr
     * Seleção das colunas finais relevantes.
     * *Saída:* `dados_processados/milho.csv` (contendo múltiplas linhas por ano, uma para cada safra).
 
-## 2️⃣ Etapa 2 - Comsolidação e Análise Exploratória
+## Etapa 2 - Consolidação e Análise Exploratória
 O objetivo desta etapa foi unificar as bases de dados processadas e realizar uma análise inicial para entender os padrões e relações.
 
 * **Consolidação:**
@@ -90,22 +90,51 @@ O objetivo desta etapa foi unificar as bases de dados processadas e realizar uma
     * **Clima:** As séries temporais mensais mostraram a sazonalidade esperada para a região, com períodos mais quentes/secos e mais amenos/chuvosos.
     ![Evolução Mensal das Variáveis Climáticas](assets/imagens/clima.png "Evolução Mensal das Variáveis Climáticas")
 
-    * 
-    * **NDVI (SatVeg):** A série temporal do NDVI médio mensal também exibiu forte sazonalidade. O gráfico de "Perfil Sazonal Médio" indicou que os maiores valores médios de NDVI (pico de vigor vegetativo) ocorrem tipicamente por volta de **Março (Mês 3)**, sugerindo o período crítico para o desenvolvimento da safrinha.
+    * **NDVI (SatVeg):** A série temporal do NDVI médio mensal também exibiu forte sazonalidade. O gráfico de "Média Mensal do NDVI" e "Decomposição Série Temporal NDVI Médio Mensal" indicaram que os maiores valores médios de NDVI (pico de vigor vegetativo) ocorrem tipicamente por volta de **Março (Mês 3)**, sugerindo o período crítico para o desenvolvimento da safrinha.
+  ![Perfil Sazonal Médio](assets/imagens/ndvi1.png "Perfil Sazonal Médio")
+
+  ![Perfil Sazonal Médio](assets/imagens/ndvi2.png "Perfil Sazonal Médio")
+   
     * **Produtividade:** A análise da produtividade por safra mostrou variações significativas entre a 1ª, 2ª e 3ª safras ao longo dos anos, reforçando a importância de analisar os dados por safra. Houve uma tendência geral de aumento da produtividade ao longo dos anos.
-    * **Correlação (Mensal):** A matriz de correlação calculada na base mensal consolidada (considerando apenas o período com dados completos para todas as variáveis, 2019-2024) mostrou **correlações lineares fracas** entre a produtividade anual e as médias/somas mensais da maioria das variáveis climáticas e de NDVI. A exceção foi o Vento Médio Mensal, que apresentou correlação negativa moderada (-0.60). Isso indicou que uma simples agregação mensal geral não capturava bem a relação complexa com a produtividade anual.
+  ![Evolução Temporal - Produtividade Anual por Safra](assets/imagens/produtividade_ano.png "Evolução Temporal - Produtividade Anual por Safra")
 
+![Evolução Temporal - Produtividade Anual por Safra](assets/imagens/produtividade_ano1.png "Evolução Temporal - Produtividade Anual por Safra")
 
-- 1️⃣ Pré-processamento de Dados
-  - 🧹 Limpeza e organização de dados temporais de NDVI
-  - 🔄 Tratamento de dados meteorológicos
-  - 📉 Análise exploratória para identificação de padrões sazonais
+   * **Correlação Mensal:** A matriz de correlação calculada na base mensal consolidada (considerando apenas o período com dados completos para todas as variáveis, 2019-2024) mostrou **correlações lineares fracas** entre a produtividade anual e as médias/somas mensais da maioria das variáveis climáticas e de NDVI. A exceção foi o Vento Médio Mensal, que apresentou correlação negativa moderada (-0.60). Isso indicou que uma simples agregação mensal geral não capturava bem a relação complexa com a produtividade anual.
+![Matriz de Correlação](assets/imagens/matriz_correlacao.png "Evolução Temporal - Matriz de Correlação")
 
-- 2️⃣ Processamento de Imagens
-  - 🖼️ Segmentação de imagens utilizando diferentes técnicas:
-    - 📏 Limiares de NDVI
-    - 🧩 Algoritmo K-means
-    - 💧 Watershed
+## Etapa 3 – Construção do Modelo de IA
+
+Com base nos insights da Etapa 2, focamos em construir um modelo para prever a `Produtividade_Anual` por safra.
+
+* **Engenharia de Atributos por Safra:** Reconhecendo a importância de cada ciclo agrícola, abandonamos a agregação anual simples. Criamos features específicas para cada safra registrada nos dados da CONAB:
+    * Definimos os meses calendário correspondentes a cada tipo de safra (1ª, 2ª, 3ª), considerando o deslocamento de ano para a 1ª safra.
+    * Para cada safra/ano, filtramos os dados mensais de clima e NDVI correspondentes àquele período.
+    * Calculamos estatísticas agregadas (média, mínimo, máximo, soma) para as variáveis climáticas e NDVI *dentro do período de cada safra*. Isso gerou features como `TEMPERATURA_media_mensal_max_safra`, `PRECIPITACAO_mm_mensal_soma_sum_safra`, `NDVI_satveg_mensal_max_safra`, etc.
+    * Adicionamos o `ANO` e o tipo de `safra` (transformada em variáveis dummy) como features explícitas.
+* **Justificativa do Modelo (RandomForestRegressor):**
+    * **Modelo Escolhido:** Random Forest Regressor (Floresta Aleatória para Regressão).
+    * **Lida com Não-Linearidade:** Capaz de capturar relações complexas e não-lineares entre as variáveis (clima, NDVI, produtividade), que são comuns na agricultura.
+    * **Robustez a Overfitting:** Menos propenso a "decorar" os dados de treino (overfitting) em comparação com uma única árvore de decisão, devido à combinação de múltiplas árvores.
+    * **Análise de Importância:** Fornece uma métrica (`feature_importances_`) que indica quais variáveis tiveram maior influência na previsão da produtividade.
+    * **Não Exige Escalonamento:** Geralmente funciona bem mesmo que as variáveis de entrada (features) não estejam na mesma escala numérica.
+* **Treinamento e Otimização:**
+    * Os dados agregados por safra foram divididos em conjuntos de treino (75%) e teste (25%), usando estratificação por safra para garantir representatividade.
+    * Utilizamos `GridSearchCV` com validação cruzada (3 folds) para encontrar os melhores hiperparâmetros para o RandomForestRegressor, otimizando para a métrica R².
+    * *Melhores Parâmetros Encontrados:* `{ 'max_depth': 10, 'max_features': 'sqrt', 'min_samples_leaf': 1, 'min_samples_split': 2, 'n_estimators': 150 }`
+* **Resultados e Métricas (Conjunto de Teste):** O modelo final otimizado apresentou o seguinte desempenho no conjunto de teste (dados não vistos):
+    * **R² (R-quadrado): 0.5202** (Explica ~52% da variância da produtividade)
+    * **RMSE (Erro Médio Quadrático): 1.3673 t/ha**
+    * **MAE (Erro Absoluto Médio): 1.0749 t/ha**
+* **Interpretação do Desempenho:** O R² positivo indica que o modelo tem poder preditivo moderado, superando significativamente as abordagens anteriores (agregação anual, modelos lineares). O erro médio (MAE ≈ 1.07 t/ha) representa uma melhora considerável, embora ainda haja espaço para otimização.
+* **Importância das Features:**
+    * A variável `ANO_f` continuou sendo a mais importante, refletindo a forte tendência temporal de aumento de produtividade (provavelmente por tecnologia/genética).
+    * Variáveis de **Umidade** (máxima e média durante a safra) e **Temperatura Máxima** durante a safra ganharam destaque, indicando sua relevância para o modelo.
+    * A **Safra** (especialmente a 3ª) também mostrou ter influência.
+    * NDVI, Radiação, Precipitação e Vento tiveram menor peso *neste modelo específico*.
+* **Gráficos:**
+    * O gráfico "Real vs. Previsto" mostra uma correlação positiva, com pontos mais próximos da linha ideal do que nos modelos anteriores, mas ainda com dispersão indicando os erros existentes.
+    * O gráfico de "Importância das Features" ilustra visualmente a dominância do Ano e a relevância da Umidade e Temperatura Máxima. (Estes gráficos podem ser visualizados executando o código ou a aplicação Streamlit).
 
 - 📑 Extração de características relevantes para análise de produtividade
 
