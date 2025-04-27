@@ -172,7 +172,7 @@ Com base nos insights da Etapa 2, focamos em construir um modelo para prever a `
 
    **Entregável 1:** É o próprio README e o APP com as principais visualizações [Link para o App Implantado](https://juhungaro-pipoca-app-produtividade-umuvv5.streamlit.app/)
   
-   **Entregável 1:** O notebook *Entrega2_V2.ipynb* contém os entregáveis para a Entrega 2.
+   **Entregável 2:** O notebook *Entrega2_V2.ipynb* onde contém todo o código para a Entrega 2, por segurança o código do APP também esta no notebook *app_produtividade* e aplicação do Streamlit esta direcionda pra ele.
 
 ![Etapa1](assets/imagens/etapa1.png "Etapa 1")
 
@@ -180,7 +180,7 @@ Com base nos insights da Etapa 2, focamos em construir um modelo para prever a `
 
 ![Etapa 3 e 4](assets/imagens/etapa3_4.png "Etapas 3 e 4")
 
-
+   **Entregável 3:** VIDEO INSERIR LINK
 
 
 ## 📋 Licença
