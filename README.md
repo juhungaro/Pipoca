@@ -166,37 +166,22 @@ Com base nos insights da Etapa 2, focamos em construir um modelo para prever a `
 5.  **Executar Modelagem (Etapa 3):** Execute o notebook/script da Etapa 3 para realizar a agregação por safra, treinar/otimizar o modelo RandomForest e salvar o modelo final (`modelo_final_rf_por_safra_otimizado.joblib`) na pasta `resultados/modelos/`.
 6.  **Visualizar Dashboard (Etapa 4):**
     * Certifique-se de que as bibliotecas do `requirements.txt` do Streamlit estejam instaladas (`pip install -r requirements_streamlit.txt` - crie este arquivo se for diferente do principal).
-    * Execute o aplicativo Streamlit a partir do terminal: `streamlit run app_produtividade.py`ou diretamente no site https://streamlit.io/
+    * Execute o aplicativo Streamlit a partir do terminal: `streamlit run app_produtividade.py`ou diretamente no site [Streamlit](https://streamlit.io/)
 
 **Sobre os entregáveis:**
 
-O notebook *banana_detector.ipynb* contém os entregáveis para a Entrega 1.
+   **Entregável 1:** É o próprio README e o APP com as principais visualizações [Link para o App Implantado](https://juhungaro-pipoca-app-produtividade-umuvv5.streamlit.app/)
+  
+   **Entregável 1:** O notebook *Entrega2_V2.ipynb* contém os entregáveis para a Entrega 2.
 
-O notebook *Entrega2_V2.ipynb* contém os entregáveis para a Entrega 2, inclusive pelo fato de ser realizado Transfer Learning e Fine Tuning, talvez possa se enquadrar em uma das atividades do "Ir Além", onde o objetivo era realizar justamente estas duas técnicas. No caso, neste notebook há 3 tipos de implementações, dentre elas: CNN treinada do zero, CNN com Transfer Learning e CNN com Fine Tuning, este último utilizando como base o modelo pré-treinado (InceptionV3) anteriormente com o Transfer Learning.
+![Etapa1](assets/imagens/etapa1.png "Etapa 1")
 
-## 📁 Estrutura de pastas
+![Etapa2](assets/imagens/etapa2.png "Etapa 2")
 
-Dentre os arquivos e pastas presentes na raiz do projeto, definem-se:
+![Etapa 3 e 4](assets/imagens/etapa3_4.png "Etapas 3 e 4")
 
-- <b>src</b>: Todo o código fonte criado com os dois notebooks, um chamado *banana_detector.ipynb* e outro *banana_classification.ipynb*.
 
-## 🔧 Como executar o código
 
-Para rodar o código basta fazer uma cópia do notebook para o Google Colab (é mais prático, porém também é possível rodar localmente, caso for necessário), assim como, fazer o download dos dois datasets necessários para realizar o treinamento. Informações sobre quais datasets foram utilizados para os treinamentos se encontram nos notebooks.
-
-Após realizar o download do dataset, zipar a pasta e fazer o upload para o seu Google Drive pessoal. Porém, também é possível fazer uma cópia do dataset que já se encontra no Google Drive de um dos integrantes do grupo, segue links para download dos datasets:
-
-##### Classificador de bananas:
-- [Banana_Classification.zip](https://drive.google.com/file/d/1lAhs54E3FUOSJGk1S6ij8FGL8eszyu4u/view?usp=drive_link)
-
-**Fonte:**
-[Banana Ripeness Classification Computer Vision Project](https://universe.roboflow.com/roboflow-universe-projects/banana-ripeness-classification)
-
-##### Detector de Bananas:
-- [Banana_detector.yolov11.zip](https://drive.google.com/file/d/1gDLfpKXPQUq2CK0k9ljSHGIQPZhgA8mQ/view?usp=drive_link)
-
-**Fonte:**
-[Banana Ripening Process Computer Vision Project](https://universe.roboflow.com/fruit-ripening/banana-ripening-process)
 
 ## 📋 Licença
 
