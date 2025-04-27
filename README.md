@@ -88,6 +88,8 @@ O objetivo desta etapa foi unificar as bases de dados processadas e realizar uma
           
 * **Análise Exploratória (Resultados Principais - Ver Gráficos no App/Notebook):**
     * **Clima:** As séries temporais mensais mostraram a sazonalidade esperada para a região, com períodos mais quentes/secos e mais amenos/chuvosos.
+    ![Evolução Mensal das Variáveis Climáticas](assets/imagens/clima.png "Evolução Mensal das Variáveis Climáticas")
+
     * 
     * **NDVI (SatVeg):** A série temporal do NDVI médio mensal também exibiu forte sazonalidade. O gráfico de "Perfil Sazonal Médio" indicou que os maiores valores médios de NDVI (pico de vigor vegetativo) ocorrem tipicamente por volta de **Março (Mês 3)**, sugerindo o período crítico para o desenvolvimento da safrinha.
     * **Produtividade:** A análise da produtividade por safra mostrou variações significativas entre a 1ª, 2ª e 3ª safras ao longo dos anos, reforçando a importância de analisar os dados por safra. Houve uma tendência geral de aumento da produtividade ao longo dos anos.
