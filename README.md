@@ -106,6 +106,49 @@ O objetivo desta etapa foi unificar as bases de dados processadas e realizar uma
      
 ![Matriz de Correlação](assets/imagens/matriz_correlacao.png "Evolução Temporal - Matriz de Correlação")
 
+### Segmentação por Limiar Fixo de NDVI (Exemplo: Maio/2024, Limiar > 0.4)
+
+Foi aplicada uma técnica de segmentação simples baseada em um limiar fixo de NDVI para destacar áreas com vegetação potencialmente mais vigorosa em uma imagem de exemplo (Maio de 2024).
+
+* **Método:** Pixels com valor de NDVI **superior a 0.4** foram classificados como "Cultivo Potencial", enquanto pixels com NDVI menor ou igual a 0.4 foram classificados como "Outros". Áreas sem dados foram marcadas como "NoData".
+* **Resultado:** A imagem segmentada resultante mostrou extensas áreas classificadas como "Cultivo Potencial", correspondendo visualmente às áreas com maior vigor vegetativo na imagem NDVI original de Maio. Isso é consistente com o período de desenvolvimento do milho safrinha na região.
+* **Interpretação:** Esta segmentação básica conseguiu diferenciar áreas com vegetação mais densa (provavelmente a cultura em desenvolvimento) de áreas com menor biomassa (solo exposto, estradas, outras coberturas). O limiar de 0.4 pareceu mais adequado para esta época do ano do que limiares mais altos testados anteriormente.
+* **Limitações:** Esta é uma segmentação simples baseada apenas no NDVI. Não diferencia tipos de cultura e pode ser sensível à escolha do limiar e à data da imagem. Técnicas mais avançadas (Otsu, K-Means) poderiam oferecer resultados diferentes.
+
+ ![Limiar Fixo de NDVI](assets/imagens/segmentação_limiar.png "Limiar Fixo de NDVI")
+
+
+### Segmentação por Limiar Automático (Otsu) (Exemplo: Maio/2024)
+
+Utilizou-se o método de Otsu para determinar automaticamente um limiar ótimo que separasse os pixels da imagem NDVI (Maio de 2024) em duas classes principais, baseando-se na distribuição dos valores de NDVI.
+
+* **Método:** O algoritmo de Otsu analisou o histograma dos valores de NDVI válidos e calculou um limiar de aproximadamente **0.37**. Pixels acima desse limiar foram classificados como "Alto NDVI" e abaixo como "Baixo NDVI".
+* **Resultado:** A imagem segmentada mostrou uma classificação semelhante à do limiar fixo de 0.4, mas com o limiar ligeiramente mais baixo (0.37), potencialmente incluindo áreas com vigor vegetativo um pouco menor na classe "Alto NDVI". As áreas verdes ("Alto NDVI") correspondem às regiões com maior atividade fotossintética na imagem original.
+* **Interpretação:** O método de Otsu forneceu uma separação automática entre áreas de maior e menor atividade vegetal. O limiar encontrado (0.37) é plausível para diferenciar a vegetação mais desenvolvida (provavelmente milho safrinha em Maio) das demais áreas (solo, estradas, vegetação menos densa) com base puramente na distribuição estatística dos dados daquela imagem específica.
+* **Vantagens/Limitações:** A vantagem é a automatização, não exigindo a escolha manual de um limiar. A limitação é que o limiar ótimo estatisticamente pode não corresponder perfeitamente a um limiar agronômico específico desejado.
+
+ ![Limiar Automático (Otsu)](assets/imagens/segmentação_otsu.png "Limiar Automático (Otsu)")
+
+
+### Segmentação Não Supervisionada (K-Means) no Google Earth Engine
+
+Para tentar uma separação mais detalhada do uso do solo, exploramos a técnica de clusterização K-Means, que agrupa pixels em um número pré-definido de classes (clusters) com base na similaridade de múltiplas características espectrais.
+
+* **Desafio da Implementação Local:** Tentativas de implementar K-Means diretamente no ambiente Colab/local em imagens raster de satélite mostraram-se computacionalmente intensivas e complexas, especialmente para áreas extensas, devido à necessidade de processar um grande volume de pixels.
+* **Abordagem GEE:** Optou-se por realizar a segmentação K-Means diretamente na plataforma Google Earth Engine (GEE) para maior eficiência.
+* **Processo GEE:**
+    1.  Selecionamos uma imagem composta (mediana) do satélite Sentinel-2 para um período representativo (Fev/Mar de 2023).
+    2.  Calculamos o NDVI e selecionamos um conjunto de bandas espectrais relevantes (`B4`, `B3`, `B2`, `B8`, `NDVI`) como features para a clusterização.
+    3.  Amostramos 5000 pixels aleatórios da imagem dentro da área de interesse.
+    4.  Treinamos um clusterizador K-Means com **5 clusters** usando as amostras.
+    5.  Aplicamos o clusterizador treinado à imagem composta completa para classificar cada pixel em um dos 5 clusters.
+* **Resultado:** O processo no GEE foi iniciado com sucesso (`[EXPORTANDO] Tarefa... iniciada.`). O resultado final é uma imagem GeoTIFF exportada para a pasta `GEE_Segmentacao_Resultados` no Google Drive. Nesta imagem, cada pixel possui um valor numérico (de 0 a 4) indicando a qual cluster ele pertence.
+* **Interpretação e Limitações:**
+    * **Visualização:** Arquivos GeoTIFF não podem ser exibidos diretamente no Markdown. A interpretação visual do mapa de clusters requer a abertura do arquivo `.tif` exportado em um software de Sistema de Informação Geográfica (SIG/GIS), como o QGIS (gratuito).
+    * **Significado dos Clusters:** O K-Means é não supervisionado, o que significa que o algoritmo agrupa os pixels por similaridade, mas **não nos diz automaticamente o que cada cluster representa** (ex: qual cluster é milho, qual é soja, qual é solo, etc.). A interpretação do significado agronômico de cada cluster (valor de 0 a 4) exige análise adicional, comparando o mapa de clusters com a imagem original (RGB ou NDVI) ou com dados de campo (ground truth), se disponíveis.
+    * **Potencial:** Apesar da necessidade de interpretação posterior, o K-Means tem o potencial de separar diferentes tipos de cobertura ou níveis de vigor vegetal de forma mais detalhada que os métodos baseados em limiar único de NDVI.
+  
+
 ## Etapa 3 – Construção do Modelo de IA
 
 Com base nos insights da Etapa 2, focamos em construir um modelo para prever a `Produtividade_Anual` por safra.
