@@ -91,16 +91,19 @@ O objetivo desta etapa foi unificar as bases de dados processadas e realizar uma
     ![Evolução Mensal das Variáveis Climáticas](assets/imagens/clima.png "Evolução Mensal das Variáveis Climáticas")
 
     * **NDVI (SatVeg):** A série temporal do NDVI médio mensal também exibiu forte sazonalidade. O gráfico de "Média Mensal do NDVI" e "Decomposição Série Temporal NDVI Médio Mensal" indicaram que os maiores valores médios de NDVI (pico de vigor vegetativo) ocorrem tipicamente por volta de **Março (Mês 3)**, sugerindo o período crítico para o desenvolvimento da safrinha.
-  ![Perfil Sazonal Médio](assets/imagens/ndv1.png "Perfil Sazonal Médio")
+      
+  ![Perfil Sazonal Médio](assets/imagens/ndvi1.png "Perfil Sazonal Médio")
 
   ![Perfil Sazonal Médio](assets/imagens/ndvi2.png "Perfil Sazonal Médio")
    
     * **Produtividade:** A análise da produtividade por safra mostrou variações significativas entre a 1ª, 2ª e 3ª safras ao longo dos anos, reforçando a importância de analisar os dados por safra. Houve uma tendência geral de aumento da produtividade ao longo dos anos.
+      
   ![Evolução Temporal - Produtividade Anual por Safra](assets/imagens/evolucao_temporal.png "Evolução Temporal - Produtividade Anual por Safra")
 
 ![Evolução Temporal - Produtividade Anual por Safra](assets/imagens/produtividade_ano1.png "Evolução Temporal - Produtividade Anual por Safra")
 
    * **Correlação Mensal:** A matriz de correlação calculada na base mensal consolidada (considerando apenas o período com dados completos para todas as variáveis, 2019-2024) mostrou **correlações lineares fracas** entre a produtividade anual e as médias/somas mensais da maioria das variáveis climáticas e de NDVI. A exceção foi o Vento Médio Mensal, que apresentou correlação negativa moderada (-0.60). Isso indicou que uma simples agregação mensal geral não capturava bem a relação complexa com a produtividade anual.
+     
 ![Matriz de Correlação](assets/imagens/matriz_correlacao.png "Evolução Temporal - Matriz de Correlação")
 
 ## Etapa 3 – Construção do Modelo de IA
@@ -134,36 +137,42 @@ Com base nos insights da Etapa 2, focamos em construir um modelo para prever a `
     * NDVI, Radiação, Precipitação e Vento tiveram menor peso *neste modelo específico*.
 * **Gráficos:**
     * O gráfico "Real vs. Previsto" mostra uma correlação positiva, com pontos mais próximos da linha ideal do que nos modelos anteriores, mas ainda com dispersão indicando os erros existentes.
- ![Real vs. Previsto](assets/imagens/real_previstp.png "Real vs. Previsto")
+      
+ ![Real vs. Previsto](assets/imagens/real_previsto.png "Real vs. Previsto")
   
-    * O gráfico de "Importância das Features" ilustra visualmente a dominância do Ano e a relevância da Umidade e Temperatura Máxima. (Estes gráficos podem ser visualizados executando o código ou a aplicação Streamlit).
+   * O gráfico de "Importância das Features" ilustra visualmente a dominância do Ano e a relevância da Umidade e Temperatura Máxima. 
+ 
+ ![Importância das Features](assets/imagens/importancia_features.png "Importância das Features")
 
-- 📑 Extração de características relevantes para análise de produtividade
+## Conclusões e Próximos Passos
 
-## 3️⃣ Modelagem (em desenvolvimento) CONTINUAR
-🤖 Seleção de algoritmos de aprendizado de máquina
-🏋️‍♂️ Treinamento com dados históricos
-⚙️ Validação e ajuste de hiperparâmetros
-📊 Avaliação de desempenho
-🔬 Resultados Preliminares
-📈 A análise de NDVI mostra clara sazonalidade alinhada com os ciclos de cultivo
-🔗 Identificação de correlações entre índices meteorológicos e vigor da vegetação
-🗺️ Segmentação eficiente das áreas de cultivo em diferentes níveis de desenvolvimento
-🚀 Próximos Passos
-✅ Finalizar implementação e treinamento do modelo preditivo
-🧪 Validar resultados com dados de produtividade reais
-🖥️ Desenvolver interface para visualização de previsões
-🛠️ Dependências
-🐍 Python 3.x
-🐼 Pandas, NumPy
-🧠 Scikit-learn, Scikit-image
-📊 Matplotlib, Seaborn
+* A agregação dos dados por **safra agrícola** foi crucial para obter um modelo com desempenho preditivo moderado (R² ≈ 0.52).
+* O modelo `RandomForestRegressor` otimizado conseguiu capturar parte da relação entre clima/NDVI e produtividade, destacando a importância da **umidade** e da **temperatura máxima** durante o ciclo da safra.
+* A forte influência da variável **ANO** sugere que fatores de tendência temporal (tecnologia, genética, manejo geral) não modelados explicitamente ainda são os principais direcionadores da produtividade ao longo do período analisado.
+* O erro médio (MAE ≈ 1.07 t/ha) indica que o modelo pode ser útil para estimativas, mas ainda possui limitações para previsões de alta precisão.
+  
+* **Próximos Passos Recomendados:**
+    * **Incorporar Dados de Solo:** Adicionar informações reais sobre tipo de solo, textura, matéria orgânica, etc., acreditamos que esse é o passo mais promissor para melhorar o modelo.
+    * **Dados de Manejo:** Incluir dados históricos sobre data de plantio, híbridos utilizados, níveis de adubação e irrigação, enriqueceria significativamente a análise.
+    * **Refinar Features:** Experimentar com agregações em períodos fenológicos mais específicos dentro de cada safra.
+    * **Testar Outros Modelos:** Avaliar algoritmos como XGBoost ou LightGBM com o conjunto de dados por safra.
+
+## Como Usar o Projeto
+
+1.  **Ambiente:** Recomenda-se usar um ambiente Python com as bibliotecas listadas no arquivo `requirements.txt`.
+2.  **Dados:** Coloque os arquivos CSV brutos (`satveg_original.csv`, `serie_historica_graos.csv` e os arquivos `sorriso_YYYY.csv` do INMET) na pasta `dados_originais/`.
+3.  **Executar Pré-processamento (Etapa 1):** Execute os notebooks ou scripts Python correspondentes à Etapa 1 para cada fonte de dados (SatVeg, Clima, Milho). Isso gerará os arquivos processados na pasta `dados_processados/`.
+4.  **Executar Consolidação e Análise (Etapa 2):** Execute o notebook/script da Etapa 2 para gerar a base consolidada mensal (`base_consolidada_mensal.csv`) e visualizar a análise exploratória.
+5.  **Executar Modelagem (Etapa 3):** Execute o notebook/script da Etapa 3 para realizar a agregação por safra, treinar/otimizar o modelo RandomForest e salvar o modelo final (`modelo_final_rf_por_safra_otimizado.joblib`) na pasta `resultados/modelos/`.
+6.  **Visualizar Dashboard (Etapa 4):**
+    * Certifique-se de que as bibliotecas do `requirements.txt` do Streamlit estejam instaladas (`pip install -r requirements_streamlit.txt` - crie este arquivo se for diferente do principal).
+    * Execute o aplicativo Streamlit a partir do terminal: `streamlit run app_produtividade.py`ou diretamente no site https://streamlit.io/
 
 **Sobre os entregáveis:**
 
 O notebook *banana_detector.ipynb* contém os entregáveis para a Entrega 1.
 
-O notebook *banana_classification.ipynb* contém os entregáveis para a Entrega 2, inclusive pelo fato de ser realizado Transfer Learning e Fine Tuning, talvez possa se enquadrar em uma das atividades do "Ir Além", onde o objetivo era realizar justamente estas duas técnicas. No caso, neste notebook há 3 tipos de implementações, dentre elas: CNN treinada do zero, CNN com Transfer Learning e CNN com Fine Tuning, este último utilizando como base o modelo pré-treinado (InceptionV3) anteriormente com o Transfer Learning.
+O notebook *Entrega2_V2.ipynb* contém os entregáveis para a Entrega 2, inclusive pelo fato de ser realizado Transfer Learning e Fine Tuning, talvez possa se enquadrar em uma das atividades do "Ir Além", onde o objetivo era realizar justamente estas duas técnicas. No caso, neste notebook há 3 tipos de implementações, dentre elas: CNN treinada do zero, CNN com Transfer Learning e CNN com Fine Tuning, este último utilizando como base o modelo pré-treinado (InceptionV3) anteriormente com o Transfer Learning.
 
 ## 📁 Estrutura de pastas
 
