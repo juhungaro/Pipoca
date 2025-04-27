@@ -91,12 +91,12 @@ O objetivo desta etapa foi unificar as bases de dados processadas e realizar uma
     ![Evolução Mensal das Variáveis Climáticas](assets/imagens/clima.png "Evolução Mensal das Variáveis Climáticas")
 
     * **NDVI (SatVeg):** A série temporal do NDVI médio mensal também exibiu forte sazonalidade. O gráfico de "Média Mensal do NDVI" e "Decomposição Série Temporal NDVI Médio Mensal" indicaram que os maiores valores médios de NDVI (pico de vigor vegetativo) ocorrem tipicamente por volta de **Março (Mês 3)**, sugerindo o período crítico para o desenvolvimento da safrinha.
-  ![Perfil Sazonal Médio](assets/imagens/ndvi1.png "Perfil Sazonal Médio")
+  ![Perfil Sazonal Médio](assets/imagens/ndv1.png "Perfil Sazonal Médio")
 
   ![Perfil Sazonal Médio](assets/imagens/ndvi2.png "Perfil Sazonal Médio")
    
     * **Produtividade:** A análise da produtividade por safra mostrou variações significativas entre a 1ª, 2ª e 3ª safras ao longo dos anos, reforçando a importância de analisar os dados por safra. Houve uma tendência geral de aumento da produtividade ao longo dos anos.
-  ![Evolução Temporal - Produtividade Anual por Safra](assets/imagens/produtividade_ano.png "Evolução Temporal - Produtividade Anual por Safra")
+  ![Evolução Temporal - Produtividade Anual por Safra](assets/imagens/evolucao_temporal.png "Evolução Temporal - Produtividade Anual por Safra")
 
 ![Evolução Temporal - Produtividade Anual por Safra](assets/imagens/produtividade_ano1.png "Evolução Temporal - Produtividade Anual por Safra")
 
@@ -134,6 +134,8 @@ Com base nos insights da Etapa 2, focamos em construir um modelo para prever a `
     * NDVI, Radiação, Precipitação e Vento tiveram menor peso *neste modelo específico*.
 * **Gráficos:**
     * O gráfico "Real vs. Previsto" mostra uma correlação positiva, com pontos mais próximos da linha ideal do que nos modelos anteriores, mas ainda com dispersão indicando os erros existentes.
+ ![Real vs. Previsto](assets/imagens/real_previstp.png "Real vs. Previsto")
+  
     * O gráfico de "Importância das Features" ilustra visualmente a dominância do Ano e a relevância da Umidade e Temperatura Máxima. (Estes gráficos podem ser visualizados executando o código ou a aplicação Streamlit).
 
 - 📑 Extração de características relevantes para análise de produtividade
