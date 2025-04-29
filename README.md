@@ -223,7 +223,7 @@ Com base nos insights da Etapa 2, focamos em construir um modelo para prever a `
 
 ![Etapa 3 e 4](assets/imagens/etapa3_4.png "Etapas 3 e 4")
 
-   **Entregável 3:** VIDEO INSERIR LINK
+   **Entregável 3:** [Link para o vídeo no Youtube](https://youtu.be/enTCkR1TYxE?si=qAbg-h-b5Aq-oQ89)
 
 
 ## 📋 Licença
